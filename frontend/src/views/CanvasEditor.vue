@@ -6,7 +6,6 @@
           <span>报文映射画布编辑器</span>
           <div>
             <el-button @click="exportConfig">导出配置</el-button>
-            <el-button type="primary" @click="testTransform">测试转换</el-button>
           </div>
         </div>
       </template>
@@ -23,6 +22,7 @@
             @input="parseSourceTree"
           />
           <el-divider />
+          <div class="tree-tip">拖拽字段到画布，自动创建映射</div>
           <el-tree
             ref="sourceTreeRef"
             :data="sourceTreeData"
@@ -53,36 +53,29 @@
           <div ref="graphContainer" class="graph-container"></div>
         </div>
         
-        <!-- 右侧：目标数据树 -->
-        <div class="target-panel">
-          <h3>目标数据</h3>
-          <el-input
-            v-model="targetJson"
-            type="textarea"
-            :rows="10"
-            placeholder="请输入目标JSON结构（用于参考），转换结果会显示在这里，可直接编辑"
-            @input="parseTargetTree"
-          />
-          <el-divider />
-          <el-tree
-            ref="targetTreeRef"
-            :data="targetTreeData"
-            :props="treeProps"
-            node-key="path"
-            class="data-tree"
+        <!-- 右侧：预览结果 -->
+        <div class="preview-panel">
+          <h3>转换预览</h3>
+          <el-button 
+            type="primary" 
+            size="small" 
+            @click="updatePreview"
+            style="margin-bottom: 10px;"
+            :loading="previewing"
           >
-            <template #default="{ node, data }">
-              <span 
-                class="tree-node"
-                draggable="true"
-                @dragstart="handleTreeDragStart($event, data, 'target')"
-                @dragend="handleTreeDragEnd"
-              >
-                <el-icon><Document /></el-icon>
-                {{ node.label }} ({{ data.type }})
-              </span>
-            </template>
-          </el-tree>
+            刷新预览
+          </el-button>
+          <el-input
+            v-model="previewResult"
+            type="textarea"
+            :rows="20"
+            readonly
+            placeholder="配置映射规则后，点击刷新预览查看转换结果"
+            style="font-family: 'Courier New', monospace;"
+          />
+          <div v-if="previewError" style="margin-top: 10px; color: #f56c6c; font-size: 12px;">
+            {{ previewError }}
+          </div>
         </div>
       </div>
     </el-card>
@@ -210,11 +203,13 @@ import { Document, Delete } from '@element-plus/icons-vue'
 import { transformV2Api } from '../api'
 
 const sourceJson = ref('')
-const targetJson = ref('')
 const sourceTreeData = ref([])
-const targetTreeData = ref([])
 const graphContainer = ref(null)
 let graph = null
+
+const previewResult = ref('')
+const previewError = ref('')
+const previewing = ref(false)
 let keyDownHandler = null
 
 const treeProps = {
@@ -330,6 +325,11 @@ const initGraph = () => {
         }
       }
     }])
+    
+    // 连线创建后自动更新预览
+    nextTick(() => {
+      updatePreview()
+    })
   })
   
   // 监听节点双击事件，启用文本编辑（仅目标节点可编辑）
@@ -351,6 +351,18 @@ const initGraph = () => {
       if (sourceId === node.id || targetId === node.id) {
         graph.removeEdge(edge.id)
       }
+    })
+    
+    // 节点删除后自动更新预览
+    nextTick(() => {
+      updatePreview()
+    })
+  })
+  
+  // 监听边的删除
+  graph.on('edge:removed', () => {
+    nextTick(() => {
+      updatePreview()
     })
   })
   
@@ -393,16 +405,45 @@ const parseSourceTree = () => {
   }
 }
 
-const parseTargetTree = () => {
+// 更新预览结果
+const updatePreview = async () => {
+  if (!sourceJson.value.trim()) {
+    previewError.value = '请先输入源数据'
+    previewResult.value = ''
+    return
+  }
+  
+  const config = exportMappingConfig()
+  if (config.rules.length === 0) {
+    previewError.value = '请先配置映射规则（拖拽字段到画布并连线）'
+    previewResult.value = ''
+    return
+  }
+  
+  previewing.value = true
+  previewError.value = ''
+  
   try {
-    if (!targetJson.value.trim()) {
-      targetTreeData.value = []
-      return
+    const response = await transformV2Api.transform(sourceJson.value, config)
+    
+    if (response.data && response.data.success) {
+      // 如果返回的是JSON字符串，格式化显示
+      try {
+        const jsonData = JSON.parse(response.data.transformedData)
+        previewResult.value = JSON.stringify(jsonData, null, 2)
+      } catch (e) {
+        previewResult.value = response.data.transformedData
+      }
+      previewError.value = ''
+    } else {
+      previewError.value = '转换失败: ' + (response.data?.errorMessage || '未知错误')
+      previewResult.value = ''
     }
-    const data = JSON.parse(targetJson.value)
-    targetTreeData.value = [convertToTreeData(data, 'target', '')]
-  } catch (e) {
-    console.error('解析目标JSON失败:', e)
+  } catch (error) {
+    previewError.value = '转换失败: ' + (error.response?.data?.errorMessage || error.message)
+    previewResult.value = ''
+  } finally {
+    previewing.value = false
   }
 }
 
@@ -477,51 +518,40 @@ const handleTreeDragEnd = () => {
 const handleCanvasDrop = (event) => {
   event.preventDefault()
   
-  if (!graph || !draggingData) return
+  // 只处理源节点的拖拽
+  if (!graph || !draggingData || draggingData.nodeType !== 'source') return
   
   const rect = graphContainer.value.getBoundingClientRect()
-  const x = event.clientX - rect.left
-  const y = event.clientY - rect.top
-  
-  // 计算节点位置（考虑画布的缩放和平移）
   const clientX = event.clientX - rect.left
   const clientY = event.clientY - rect.top
   
+  // 提取字段名（从路径中提取最后一个字段）
+  let fieldName = draggingData.label
+  if (draggingData.path) {
+    const pathParts = draggingData.path.split('.')
+    fieldName = pathParts[pathParts.length - 1].replace(/\$/, '').replace(/\[.*\]/, '')
+  }
+  
   nodeCounter++
   
-  // 提取字段名（从路径中提取最后一个字段）
-  const fieldName = draggingData.path 
-    ? draggingData.path.split('.').pop().replace(/\$/, '').replace(/\[.*\]/, '')
-    : draggingData.label
-  
-  const nodeConfig = {
-    x: clientX - 60,
-    y: clientY - 20,
+  // 创建源节点（蓝色）- 左侧
+  const sourceNodeId = `source_${nodeCounter}`
+  const sourceNodeConfig = {
+    x: clientX - 180,
+    y: clientY - 25,
     width: 150,
     height: 50,
     shape: 'rect',
     label: fieldName,
+    id: sourceNodeId,
     data: {
-      type: draggingData.nodeType,
+      type: 'source',
       path: draggingData.path,
-      nodeId: `${draggingData.nodeType}_${nodeCounter}`,
+      nodeId: sourceNodeId,
       fieldName: fieldName
     },
-    // 添加连接桩配置
     ports: {
       groups: {
-        top: {
-          position: 'top',
-          attrs: {
-            circle: {
-              r: 4,
-              magnet: true,
-              stroke: '#5F95FF',
-              strokeWidth: 1,
-              fill: '#fff',
-            },
-          },
-        },
         right: {
           position: 'right',
           attrs: {
@@ -534,18 +564,44 @@ const handleCanvasDrop = (event) => {
             },
           },
         },
-        bottom: {
-          position: 'bottom',
-          attrs: {
-            circle: {
-              r: 4,
-              magnet: true,
-              stroke: '#5F95FF',
-              strokeWidth: 1,
-              fill: '#fff',
-            },
-          },
-        },
+      },
+      items: [
+        { id: 'port-right', group: 'right' },
+      ],
+    },
+    attrs: {
+      body: {
+        fill: '#e3f2fd',
+        stroke: '#2196f3',
+        rx: 4,
+        ry: 4,
+      },
+      text: {
+        fill: '#1976d2',
+        fontSize: 12,
+      },
+    },
+  }
+  
+  // 创建目标节点（紫色）- 右侧
+  nodeCounter++
+  const targetNodeId = `target_${nodeCounter}`
+  const targetNodeConfig = {
+    x: clientX + 30,
+    y: clientY - 25,
+    width: 150,
+    height: 50,
+    shape: 'rect',
+    label: fieldName,
+    id: targetNodeId,
+    data: {
+      type: 'target',
+      path: fieldName, // 默认路径就是字段名
+      nodeId: targetNodeId,
+      fieldName: fieldName
+    },
+    ports: {
+      groups: {
         left: {
           position: 'left',
           attrs: {
@@ -559,30 +615,64 @@ const handleCanvasDrop = (event) => {
           },
         },
       },
-      items: draggingData.nodeType === 'source' 
-        ? [
-            { id: 'port-right', group: 'right' }, // 源节点只有右侧输出
-          ]
-        : [
-            { id: 'port-left', group: 'left' }, // 目标节点只有左侧输入
-          ],
+      items: [
+        { id: 'port-left', group: 'left' },
+      ],
     },
     attrs: {
       body: {
-        fill: draggingData.nodeType === 'source' ? '#e3f2fd' : '#f3e5f5',
-        stroke: draggingData.nodeType === 'source' ? '#2196f3' : '#9c27b0',
+        fill: '#f3e5f5',
+        stroke: '#9c27b0',
         rx: 4,
         ry: 4,
       },
       text: {
-        fill: draggingData.nodeType === 'source' ? '#1976d2' : '#7b1fa2',
+        fill: '#7b1fa2',
         fontSize: 12,
       },
     },
   }
   
-  graph.addNode(nodeConfig)
+  // 添加节点到画布
+  graph.addNode(sourceNodeConfig)
+  graph.addNode(targetNodeConfig)
+  
+  // 自动创建连线（从源节点到目标节点）
+  graph.addEdge({
+    source: { cell: sourceNodeId, port: 'port-right' },
+    target: { cell: targetNodeId, port: 'port-left' },
+    attrs: {
+      line: {
+        stroke: '#8f8f8f',
+        strokeWidth: 2,
+        targetMarker: {
+          name: 'classic',
+          size: 7,
+        },
+      },
+    },
+    data: {
+      mappingType: 'ONE_TO_ONE',
+      transformType: 'DIRECT',
+      transformConfig: {}
+    },
+    labels: [{
+      attrs: {
+        text: {
+          text: 'DIRECT',
+          fill: '#666',
+          fontSize: 10,
+        }
+      }
+    }]
+  })
+  
   draggingData = null
+  
+  // 自动更新预览
+  nextTick(() => {
+    updatePreview()
+  })
 }
 
 let currentEdge = null
@@ -615,6 +705,11 @@ const saveNodeEdit = () => {
   nodeEditVisible.value = false
   currentNodeToEdit = null
   ElMessage.success('字段已更新')
+  
+  // 字段更新后自动更新预览
+  nextTick(() => {
+    updatePreview()
+  })
 }
 
 const openEdgeConfig = (edge) => {
@@ -715,6 +810,11 @@ const saveEdgeConfig = () => {
   edgeConfigVisible.value = false
   currentEdge = null
   ElMessage.success('配置保存成功')
+  
+  // 配置保存后自动更新预览
+  nextTick(() => {
+    updatePreview()
+  })
 }
 
 const exportConfig = () => {
@@ -772,35 +872,7 @@ const exportMappingConfig = () => {
   }
 }
 
-const testTransform = async () => {
-  if (!sourceJson.value.trim()) {
-    ElMessage.warning('请输入源数据')
-    return
-  }
-  
-  const config = exportMappingConfig()
-  if (config.rules.length === 0) {
-    ElMessage.warning('请先配置映射规则')
-    return
-  }
-  
-  try {
-    const response = await transformV2Api.transform(sourceJson.value, config)
-    
-    if (response.data.success) {
-      ElMessage.success('转换成功')
-      // 显示转换结果
-      console.log('转换结果:', response.data.transformedData)
-      targetJson.value = response.data.transformedData
-      // 重新解析目标树
-      parseTargetTree()
-    } else {
-      ElMessage.error('转换失败: ' + response.data.errorMessage)
-    }
-  } catch (error) {
-    ElMessage.error('转换失败: ' + error.message)
-  }
-}
+// testTransform 已改为 updatePreview
 </script>
 
 <style scoped>
@@ -824,11 +896,25 @@ const testTransform = async () => {
   height: calc(100vh - 200px);
 }
 
-.source-panel,
-.target-panel {
+.source-panel {
   width: 300px;
   display: flex;
   flex-direction: column;
+}
+
+.preview-panel {
+  width: 350px;
+  display: flex;
+  flex-direction: column;
+}
+
+.tree-tip {
+  font-size: 12px;
+  color: #666;
+  padding: 8px;
+  background: #f5f5f5;
+  border-radius: 4px;
+  margin-bottom: 10px;
 }
 
 .canvas-panel {
@@ -846,7 +932,7 @@ const testTransform = async () => {
 }
 
 .graph-container::before {
-  content: '拖拽左侧或右侧的字段节点到此处';
+  content: '拖拽左侧字段到此处，将自动创建源节点和目标节点';
   position: absolute;
   top: 50%;
   left: 50%;
