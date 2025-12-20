@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<order>
+    <orderNumber>ORD20240220001</orderNumber>
+    <customerInfo>
+        <customerId>C002</customerId>
+        <customerName>赵六</customerName>
+        <customerLevel>GOLD</customerLevel>
+    </customerInfo>
+    <orderItems>
+        <item>
+            <itemId>I001</itemId>
+            <itemName>智能手机</itemName>
+            <itemQty>1</itemQty>
+            <itemPrice>3999.00</itemPrice>
+            <itemType>electronics</itemType>
+        </item>
+        <item>
+            <itemId>I002</itemId>
+            <itemName>手机保护壳</itemName>
+            <itemQty>2</itemQty>
+            <itemPrice>59.00</itemPrice>
+            <itemType>accessories</itemType>
+        </item>
+    </orderItems>
+    <orderTotal>4117.00</orderTotal>
+    <orderDiscount>0.05</orderDiscount>
+    <orderFinal>3908.15</orderFinal>
+    <paymentType>alipay</paymentType>
+    <status>completed</status>
+    <orderDate>2024-02-20T15:45:00</orderDate>
+</order>
+

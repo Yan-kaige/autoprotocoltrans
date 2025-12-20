@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<user>
+    <name>李四</name>
+    <age>30</age>
+    <gender>female</gender>
+    <email>lisi@example.com</email>
+    <address>
+        <province>上海市</province>
+        <city>上海市</city>
+        <district>浦东新区</district>
+        <street>陆家嘴环路1000号</street>
+    </address>
+    <phone>13900139000</phone>
+    <status>inactive</status>
+    <createTime>2024-02-20 14:20:00</createTime>
+</user>
+

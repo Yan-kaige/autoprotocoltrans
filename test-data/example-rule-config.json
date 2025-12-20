@@ -1,0 +1,58 @@
+{
+  "name": "用户信息转换规则示例",
+  "description": "将JSON用户信息转换为XML格式",
+  "sourceType": "JSON",
+  "targetType": "XML",
+  "enabled": true,
+  "fieldMappings": [
+    {
+      "id": "mapping1",
+      "mappingType": "ONE_TO_ONE",
+      "sourceField": "name",
+      "targetField": "user.name",
+      "transformType": "EQUAL"
+    },
+    {
+      "id": "mapping2",
+      "mappingType": "ONE_TO_ONE",
+      "sourceField": "age",
+      "targetField": "user.age",
+      "transformType": "DATA_TYPE",
+      "dataType": "int"
+    },
+    {
+      "id": "mapping3",
+      "mappingType": "ONE_TO_ONE",
+      "sourceField": "gender",
+      "targetField": "user.gender",
+      "transformType": "DICT",
+      "dictMapping": {
+        "male": "男",
+        "female": "女"
+      }
+    },
+    {
+      "id": "mapping4",
+      "mappingType": "ONE_TO_ONE",
+      "sourceField": "email",
+      "targetField": "user.email",
+      "transformType": "EQUAL"
+    },
+    {
+      "id": "mapping5",
+      "mappingType": "ONE_TO_ONE",
+      "sourceField": "address.city",
+      "targetField": "user.city",
+      "transformType": "EQUAL"
+    },
+    {
+      "id": "mapping6",
+      "mappingType": "ONE_TO_ONE",
+      "sourceField": "status",
+      "targetField": "user.status",
+      "transformType": "FUNCTION",
+      "functionName": "upperCase"
+    }
+  ]
+}
+
