@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import RuleList from '../views/RuleList.vue'
 import RuleEdit from '../views/RuleEdit.vue'
+import CanvasEditor from '../views/CanvasEditor.vue'
 
 const routes = [
   {
@@ -12,6 +13,11 @@ const routes = [
     path: '/rule/:id?',
     name: 'RuleEdit',
     component: RuleEdit
+  },
+  {
+    path: '/canvas',
+    name: 'CanvasEditor',
+    component: CanvasEditor
   }
 ]
 

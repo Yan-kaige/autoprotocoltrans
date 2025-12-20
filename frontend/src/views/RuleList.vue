@@ -4,10 +4,16 @@
       <template #header>
         <div class="card-header">
           <span>转换规则列表</span>
-          <el-button type="primary" @click="createNewRule">
-            <el-icon><Plus /></el-icon>
-            新建规则
-          </el-button>
+          <div>
+            <el-button @click="goToCanvas">
+              <el-icon><EditPen /></el-icon>
+              画布编辑器
+            </el-button>
+            <el-button type="primary" @click="createNewRule">
+              <el-icon><Plus /></el-icon>
+              新建规则
+            </el-button>
+          </div>
         </div>
       </template>
       
@@ -45,7 +51,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
+import { Plus, EditPen } from '@element-plus/icons-vue'
 import { ruleApi } from '../api'
 
 const router = useRouter()
@@ -75,6 +81,10 @@ const loadRules = async () => {
 
 const createNewRule = () => {
   router.push('/rule')
+}
+
+const goToCanvas = () => {
+  router.push('/canvas')
 }
 
 const editRule = (id) => {

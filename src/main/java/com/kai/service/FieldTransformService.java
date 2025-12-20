@@ -26,29 +26,28 @@ public class FieldTransformService {
         TransformType type = mapping.getTransformType();
         
         switch (type) {
-            case EQUAL:
-                return transformEqual(sourceValue);
+            case DIRECT:
+                return transformDirect(sourceValue);
             case FUNCTION:
                 return transformFunction(sourceValue, mapping);
-            case JAVA_METHOD:
-                return transformJavaMethod(sourceValue, mapping);
-            case DATA_TYPE:
-                return transformDataType(sourceValue, mapping);
-            case IGNORE:
-                return null; // 忽略字段，返回null
-            case DICT:
-                return transformDict(sourceValue, mapping);
+            case GROOVY:
+                // Groovy转换已在新策略模式中实现，这里保留兼容
+                return transformGroovy(sourceValue, mapping);
+            case DICTIONARY:
+                return transformDictionary(sourceValue, mapping);
             case FIXED:
                 return transformFixed(mapping);
+            case IGNORE:
+                return null; // 忽略字段，返回null
             default:
                 return sourceValue;
         }
     }
     
     /**
-     * 等于转换（直接复制）
+     * 直接转换（直接复制）
      */
-    private Object transformEqual(Object value) {
+    private Object transformDirect(Object value) {
         return value;
     }
     
@@ -70,64 +69,18 @@ public class FieldTransformService {
     }
     
     /**
-     * Java方法映射转换（这里简化处理，实际可以支持动态调用）
+     * Groovy脚本转换（已在新策略模式中实现，这里保留兼容）
      */
-    private Object transformJavaMethod(Object value, FieldMapping mapping) {
-        // TODO: 实现Java方法动态调用
-        // 可以通过Groovy脚本或反射实现
+    private Object transformGroovy(Object value, FieldMapping mapping) {
+        // 注意：新的实现已使用GroovyStrategy，这里保留为空实现以兼容旧代码
+        // 实际使用时应该使用新的TransformationEngine
         return value;
-    }
-    
-    /**
-     * 数据类型转换
-     */
-    private Object transformDataType(Object value, FieldMapping mapping) {
-        if (value == null) {
-            return null;
-        }
-        
-        String dataType = mapping.getDataType();
-        if (dataType == null) {
-            return value;
-        }
-        
-        try {
-            switch (dataType.toLowerCase()) {
-                case "string":
-                    return value.toString();
-                case "int":
-                case "integer":
-                    if (value instanceof Number) {
-                        return ((Number) value).intValue();
-                    }
-                    return Integer.parseInt(value.toString());
-                case "long":
-                    if (value instanceof Number) {
-                        return ((Number) value).longValue();
-                    }
-                    return Long.parseLong(value.toString());
-                case "double":
-                    if (value instanceof Number) {
-                        return ((Number) value).doubleValue();
-                    }
-                    return Double.parseDouble(value.toString());
-                case "boolean":
-                    if (value instanceof Boolean) {
-                        return value;
-                    }
-                    return Boolean.parseBoolean(value.toString());
-                default:
-                    return value;
-            }
-        } catch (Exception e) {
-            return value;
-        }
     }
     
     /**
      * 字典映射转换
      */
-    private Object transformDict(Object value, FieldMapping mapping) {
+    private Object transformDictionary(Object value, FieldMapping mapping) {
         if (value == null || mapping.getDictMapping() == null) {
             return value;
         }

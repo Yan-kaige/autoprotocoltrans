@@ -37,5 +37,15 @@ export const functionApi = {
   getAvailableFunctions: () => api.get('/functions')
 }
 
+// V2版本转换API
+export const transformV2Api = {
+  // 执行转换（使用MappingConfig）
+  transform: (sourceData, mappingConfig) => 
+    api.post('/v2/transform', {
+      sourceData,
+      mappingConfig
+    })
+}
+
 export default api
 

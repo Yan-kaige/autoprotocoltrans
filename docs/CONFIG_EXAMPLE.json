@@ -1,0 +1,89 @@
+{
+  "sourceProtocol": "JSON",
+  "targetProtocol": "JSON",
+  "prettyPrint": true,
+  "rules": [
+    {
+      "sourcePath": "$.user.name",
+      "targetPath": "customer.userName",
+      "mappingType": "ONE_TO_ONE",
+      "transformType": "DIRECT"
+    },
+    {
+      "sourcePath": "$.user.email",
+      "targetPath": "customer.email",
+      "mappingType": "ONE_TO_ONE",
+      "transformType": "DIRECT"
+    },
+    {
+      "sourcePath": "$.user.status",
+      "targetPath": "customer.status",
+      "mappingType": "ONE_TO_ONE",
+      "transformType": "FUNCTION",
+      "transformConfig": {
+        "function": "upperCase"
+      }
+    },
+    {
+      "sourcePath": "$.user.age",
+      "targetPath": "customer.age",
+      "mappingType": "ONE_TO_ONE",
+      "transformType": "DIRECT"
+    },
+    {
+      "sourcePath": "$.order.status",
+      "targetPath": "order.status",
+      "mappingType": "ONE_TO_ONE",
+      "transformType": "DICTIONARY",
+      "transformConfig": {
+        "dictionary": {
+          "pending": "待处理",
+          "completed": "已完成",
+          "cancelled": "已取消"
+        }
+      }
+    },
+    {
+      "sourcePath": "$.user.firstName",
+      "targetPath": "customer.fullName",
+      "mappingType": "MANY_TO_ONE",
+      "transformType": "GROOVY",
+      "additionalSources": ["$.user.lastName"],
+      "transformConfig": {
+        "groovyScript": "def parts = input as List; if (parts == null || parts.size() < 2) return ''; return (parts[0] ?: '') + ' ' + (parts[1] ?: '')"
+      }
+    },
+    {
+      "sourcePath": null,
+      "targetPath": "order.createTime",
+      "mappingType": "ONE_TO_ONE",
+      "transformType": "FIXED",
+      "transformConfig": {
+        "fixedValue": "2024-01-01 00:00:00"
+      }
+    },
+    {
+      "sourcePath": "$.user.address",
+      "targetPath": "customer.address",
+      "mappingType": "ONE_TO_MANY",
+      "transformType": "DIRECT",
+      "transformConfig": {
+        "subMappings": [
+          {
+            "sourcePath": "$.province",
+            "targetPath": "customer.address.province"
+          },
+          {
+            "sourcePath": "$.city",
+            "targetPath": "customer.address.city"
+          },
+          {
+            "sourcePath": "$.district",
+            "targetPath": "customer.address.district"
+          }
+        ]
+      }
+    }
+  ]
+}
+
