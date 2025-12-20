@@ -60,7 +60,7 @@
             v-model="targetJson"
             type="textarea"
             :rows="10"
-            placeholder="请输入目标JSON结构（用于参考）"
+            placeholder="请输入目标JSON结构（用于参考），转换结果会显示在这里，可直接编辑"
             @input="parseTargetTree"
           />
           <el-divider />
@@ -86,6 +86,29 @@
         </div>
       </div>
     </el-card>
+    
+    <!-- 节点编辑对话框 -->
+    <el-dialog
+      v-model="nodeEditVisible"
+      title="编辑目标字段"
+      width="500px"
+    >
+      <el-form :model="currentNodeEdit" label-width="100px">
+        <el-form-item label="字段名">
+          <el-input v-model="currentNodeEdit.fieldName" placeholder="请输入字段名" />
+        </el-form-item>
+        <el-form-item label="字段路径">
+          <el-input v-model="currentNodeEdit.path" placeholder="例如: user.name" />
+          <div style="font-size: 12px; color: #999; margin-top: 5px;">
+            字段路径，用于转换后的JSON结构
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="nodeEditVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveNodeEdit">确定</el-button>
+      </template>
+    </el-dialog>
     
     <!-- 连线配置对话框 -->
     <el-dialog
@@ -132,16 +155,25 @@
           <el-input
             v-model="currentEdgeConfig.transformConfig.groovyScript"
             type="textarea"
-            :rows="6"
-            placeholder="例如: def parts = input as List; return parts[0] + ' ' + parts[1]"
+            :rows="8"
+            placeholder="输入Groovy脚本代码&#10;&#10;示例1 - 去掉邮箱@后面的部分:&#10;input?.toString()?.split('@')?[0] ?: ''&#10;&#10;示例2 - 字符串拼接(多对1):&#10;def parts = input as List; return (parts[0] ?: '') + ' ' + (parts[1] ?: '')&#10;&#10;可用变量: input(输入值), inputs(List类型时的别名)"
           />
+          <div style="font-size: 12px; color: #999; margin-top: 5px;">
+            <div><strong>变量说明：</strong></div>
+            <div>• input: 输入的字段值（单个值或List）</div>
+            <div>• inputs: 当输入是List时的别名</div>
+            <div style="margin-top: 5px;"><strong>常用示例：</strong></div>
+            <div>• 去掉邮箱@后面: <code style="background: #f5f5f5; padding: 2px 4px; border-radius: 2px;">input?.toString()?.split('@')?[0] ?: ''</code></div>
+            <div>• 转大写: <code style="background: #f5f5f5; padding: 2px 4px; border-radius: 2px;">input?.toString()?.toUpperCase()</code></div>
+            <div>• 字符串拼接: <code style="background: #f5f5f5; padding: 2px 4px; border-radius: 2px;">def parts = input as List; return parts[0] + ' ' + parts[1]</code></div>
+          </div>
         </el-form-item>
         
         <!-- 字典映射配置 -->
         <el-form-item v-if="currentEdgeConfig.transformType === 'DICTIONARY'" label="字典映射">
           <div class="dict-config">
             <div
-              v-for="(value, key, index) in dictMapping"
+              v-for="(key, index) in dictKeys"
               :key="index"
               class="dict-item"
             >
@@ -152,7 +184,7 @@
                 <el-icon><Delete /></el-icon>
               </el-button>
             </div>
-            <el-button @click="addDictItem">添加映射项</el-button>
+            <el-button @click="addDictItem" style="margin-top: 10px">添加映射项</el-button>
           </div>
         </el-form-item>
         
@@ -191,6 +223,14 @@ const treeProps = {
 }
 
 const edgeConfigVisible = ref(false)
+const nodeEditVisible = ref(false)
+let currentNodeToEdit = null
+
+const currentNodeEdit = ref({
+  fieldName: '',
+  path: ''
+})
+
 const currentEdgeConfig = ref({
   sourcePath: '',
   targetPath: '',
@@ -199,7 +239,6 @@ const currentEdgeConfig = ref({
   transformConfig: {}
 })
 
-const dictMapping = ref({})
 const dictKeys = ref([])
 const dictValues = ref([])
 
@@ -291,6 +330,15 @@ const initGraph = () => {
         }
       }
     }])
+  })
+  
+  // 监听节点双击事件，启用文本编辑（仅目标节点可编辑）
+  graph.on('node:dblclick', ({ node }) => {
+    const nodeData = node.getData() || {}
+    // 只有目标节点可以编辑
+    if (nodeData.type === 'target') {
+      openNodeEditDialog(node)
+    }
   })
   
   // 监听节点删除
@@ -441,17 +489,23 @@ const handleCanvasDrop = (event) => {
   
   nodeCounter++
   
+  // 提取字段名（从路径中提取最后一个字段）
+  const fieldName = draggingData.path 
+    ? draggingData.path.split('.').pop().replace(/\$/, '').replace(/\[.*\]/, '')
+    : draggingData.label
+  
   const nodeConfig = {
     x: clientX - 60,
     y: clientY - 20,
     width: 150,
     height: 50,
     shape: 'rect',
-    label: draggingData.label,
+    label: fieldName,
     data: {
       type: draggingData.nodeType,
       path: draggingData.path,
-      nodeId: `${draggingData.nodeType}_${nodeCounter}`
+      nodeId: `${draggingData.nodeType}_${nodeCounter}`,
+      fieldName: fieldName
     },
     // 添加连接桩配置
     ports: {
@@ -533,6 +587,36 @@ const handleCanvasDrop = (event) => {
 
 let currentEdge = null
 
+const openNodeEditDialog = (node) => {
+  currentNodeToEdit = node
+  const nodeData = node.getData() || {}
+  const currentLabel = node.attr('text/text') || ''
+  
+  currentNodeEdit.value = {
+    fieldName: currentLabel,
+    path: nodeData.path || currentLabel
+  }
+  
+  nodeEditVisible.value = true
+}
+
+const saveNodeEdit = () => {
+  if (!currentNodeToEdit) return
+  
+  // 更新节点标签
+  currentNodeToEdit.attr('text/text', currentNodeEdit.value.fieldName)
+  
+  // 更新节点数据
+  const nodeData = currentNodeToEdit.getData() || {}
+  nodeData.path = currentNodeEdit.value.path
+  nodeData.fieldName = currentNodeEdit.value.fieldName
+  currentNodeToEdit.setData(nodeData)
+  
+  nodeEditVisible.value = false
+  currentNodeToEdit = null
+  ElMessage.success('字段已更新')
+}
+
 const openEdgeConfig = (edge) => {
   currentEdge = edge
   const sourceNode = graph.getCellById(edge.getSourceCellId())
@@ -540,9 +624,12 @@ const openEdgeConfig = (edge) => {
   
   if (sourceNode && targetNode) {
     const edgeData = edge.getData() || {}
+    const sourceData = sourceNode.getData() || {}
+    const targetData = targetNode.getData() || {}
+    
     currentEdgeConfig.value = {
-      sourcePath: sourceNode.getData()?.path || '',
-      targetPath: targetNode.getData()?.path || '',
+      sourcePath: sourceData.path || '',
+      targetPath: targetData.path || '',
       mappingType: edgeData.mappingType || 'ONE_TO_ONE',
       transformType: edgeData.transformType || 'DIRECT',
       transformConfig: edgeData.transformConfig || {}
@@ -569,6 +656,10 @@ const openEdgeConfig = (edge) => {
 const onTransformTypeChange = () => {
   currentEdgeConfig.value.transformConfig = {}
   if (currentEdgeConfig.value.transformType === 'DICTIONARY') {
+    // 初始化一个空的映射项
+    dictKeys.value = ['']
+    dictValues.value = ['']
+  } else {
     dictKeys.value = []
     dictValues.value = []
   }
@@ -647,21 +738,30 @@ const exportMappingConfig = () => {
     const sourceNode = graph.getCellById(edge.getSourceCellId())
     const targetNode = graph.getCellById(edge.getTargetCellId())
     
-    if (sourceNode && targetNode) {
-      const sourceData = sourceNode.getData()
-      const targetData = targetNode.getData()
-      const edgeData = edge.getData() || {}
-      
-      const rule = {
-        sourcePath: sourceData?.path || '',
-        targetPath: targetData?.path || '',
-        mappingType: edgeData.mappingType || 'ONE_TO_ONE',
-        transformType: edgeData.transformType || 'DIRECT',
-        transformConfig: edgeData.transformConfig || {}
+      if (sourceNode && targetNode) {
+        const sourceData = sourceNode.getData()
+        const targetData = targetNode.getData()
+        const edgeData = edge.getData() || {}
+        
+        // 使用节点数据中的path，如果没有则使用JsonPath格式（源节点需要$前缀）
+        let sourcePath = sourceData?.path || ''
+        if (sourcePath && !sourcePath.startsWith('$') && sourceData?.type === 'source') {
+          sourcePath = '$.' + sourcePath.replace(/^\./, '')
+        }
+        
+        let targetPath = targetData?.path || ''
+        // 目标路径不需要$前缀，保持原样
+        
+        const rule = {
+          sourcePath: sourcePath,
+          targetPath: targetPath,
+          mappingType: edgeData.mappingType || 'ONE_TO_ONE',
+          transformType: edgeData.transformType || 'DIRECT',
+          transformConfig: edgeData.transformConfig || {}
+        }
+        
+        rules.push(rule)
       }
-      
-      rules.push(rule)
-    }
   })
   
   return {
