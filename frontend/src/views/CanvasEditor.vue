@@ -540,25 +540,90 @@ const updatePreview = async () => {
 }
 
 const exportMappingConfig = () => {
-  const rules = graph.getEdges().map(edge => {
-    const s = graph.getCellById(edge.getSourceCellId())
-    const t = graph.getCellById(edge.getTargetCellId())
-    const data = edge.getData() || {}
-    if (!s || !t) return null
-    
-    let sourcePath = s.getData().path
-    if (sourcePath && !sourcePath.startsWith('$')) {
-      sourcePath = `$.${sourcePath.replace(/^\./, '')}`
+  const edges = graph.getEdges()
+  const nodes = graph.getNodes()
+  
+  // 按目标节点分组，处理多对一映射
+  const targetToEdgesMap = new Map()
+  
+  edges.forEach(edge => {
+    const targetNode = graph.getCellById(edge.getTargetCellId())
+    if (targetNode) {
+      const targetId = targetNode.id
+      if (!targetToEdgesMap.has(targetId)) {
+        targetToEdgesMap.set(targetId, [])
+      }
+      targetToEdgesMap.get(targetId).push(edge)
     }
+  })
+  
+  const rules = []
+  
+  // 遍历每个目标节点，生成规则
+  targetToEdgesMap.forEach((edgesList, targetId) => {
+    const targetNode = graph.getCellById(targetId)
+    if (!targetNode) return
     
-    return {
-      sourcePath: sourcePath,
-      targetPath: t.getData().path,
-      mappingType: data.mappingType || 'ONE_TO_ONE',
-      transformType: data.transformType || 'DIRECT',
-      transformConfig: data.transformConfig || {}
+    const targetData = targetNode.getData()
+    const targetPath = targetData?.path || ''
+    
+    if (edgesList.length === 1) {
+      // 一对一映射
+      const edge = edgesList[0]
+      const sourceNode = graph.getCellById(edge.getSourceCellId())
+      if (!sourceNode) return
+      
+      const sourceData = sourceNode.getData()
+      const edgeData = edge.getData() || {}
+      
+      let sourcePath = sourceData?.path || ''
+      if (sourcePath && !sourcePath.startsWith('$')) {
+        sourcePath = `$.${sourcePath.replace(/^\./, '')}`
+      }
+      
+      const rule = {
+        sourcePath: sourcePath,
+        targetPath: targetPath,
+        mappingType: edgeData.mappingType || 'ONE_TO_ONE',
+        transformType: edgeData.transformType || 'DIRECT',
+        transformConfig: edgeData.transformConfig || {}
+      }
+      rules.push(rule)
+    } else {
+      // 多对一映射：多条边指向同一个目标节点
+      const sourcePaths = []
+      const firstEdgeData = edgesList[0].getData() || {}
+      
+      edgesList.forEach(edge => {
+        const sourceNode = graph.getCellById(edge.getSourceCellId())
+        if (sourceNode) {
+          const sourceData = sourceNode.getData()
+          let sourcePath = sourceData?.path || ''
+          if (sourcePath && !sourcePath.startsWith('$')) {
+            sourcePath = `$.${sourcePath.replace(/^\./, '')}`
+          }
+          if (sourcePath) {
+            sourcePaths.push(sourcePath)
+          }
+        }
+      })
+      
+      if (sourcePaths.length > 0) {
+        const rule = {
+          sourcePath: sourcePaths[0], // 主源路径
+          additionalSources: sourcePaths.slice(1), // 额外的源路径
+          targetPath: targetPath,
+          mappingType: 'MANY_TO_ONE',
+          transformType: firstEdgeData.transformType || 'GROOVY',
+          transformConfig: firstEdgeData.transformConfig || {
+            // 默认Groovy脚本：拼接所有输入值
+            groovyScript: `def parts = input as List; return parts.collect { it?.toString() ?: '' }.join(' ')`
+          }
+        }
+        rules.push(rule)
+      }
     }
-  }).filter(r => r)
+  })
   
   return {
     sourceProtocol: 'JSON',
