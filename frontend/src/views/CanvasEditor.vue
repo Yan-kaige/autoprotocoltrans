@@ -290,26 +290,40 @@ const handleCanvasDrop = (event) => {
   const fieldName = draggingData.label
   const sId = `s_${++nodeCounter}`, tId = `t_${++nodeCounter}`
 
+  // 1. 创建源节点
   graph.addNode({
     id: sId, x: x - 200, y: y - 25, width: 140, height: 40, label: fieldName,
     data: { type: 'source', path: draggingData.path },
-    ports: { groups: { right: { position: 'right', attrs: { circle: { r: 4, magnet: true, stroke: '#2196f3', fill: '#fff' } } } }, items: [{ id: 'p1', group: 'right' }] },
-    attrs: { body: { fill: '#e3f2fd', stroke: '#2196f3', rx: 4 } }
+    ports: {
+      groups: { right: { position: 'right', attrs: { circle: { r: 4, magnet: true, stroke: '#2196f3', fill: '#fff' } } } },
+      items: [{ id: 'p1', group: 'right' }]
+    },
+    attrs: { body: { fill: '#e3f2fd', stroke: '#2196f3', rx: 4 }, text: { text: fieldName } }
   })
 
+  // 2. 创建目标节点
   graph.addNode({
     id: tId, x: x + 50, y: y - 25, width: 140, height: 40, label: fieldName,
     data: { type: 'target', path: fieldName },
-    ports: { groups: { left: { position: 'left', attrs: { circle: { r: 4, magnet: true, stroke: '#9c27b0', fill: '#fff' } } } }, items: [{ id: 'p1', group: 'left' }] },
-    attrs: { body: { fill: '#f3e5f5', stroke: '#9c27b0', rx: 4 } }
+    ports: {
+      groups: { left: { position: 'left', attrs: { circle: { r: 4, magnet: true, stroke: '#9c27b0', fill: '#fff' } } } },
+      items: [{ id: 'p1', group: 'left' }]
+    },
+    attrs: { body: { fill: '#f3e5f5', stroke: '#9c27b0', rx: 4 }, text: { text: fieldName } }
   })
 
+  // 3. 创建初始连线
   graph.addEdge({
     source: { cell: sId, port: 'p1' },
     target: { cell: tId, port: 'p1' },
     attrs: { line: { stroke: '#8f8f8f', strokeWidth: 2 } },
-    data: { transformType: 'DIRECT' },
+    data: { transformType: 'DIRECT', mappingType: 'ONE_TO_ONE' },
     labels: [{ attrs: { text: { text: 'DIRECT', fontSize: 10 } } }]
+  })
+
+  // 4. 重点：手动触发预览刷新
+  nextTick(() => {
+    updatePreview()
   })
 }
 
