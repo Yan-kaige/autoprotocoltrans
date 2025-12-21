@@ -3,9 +3,13 @@ package com.kai.controller;
 import com.kai.dto.TransformResponse;
 import com.kai.model.MappingConfig;
 import com.kai.service.TransformationEngine;
+import com.kai.util.MessageConverterUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * 转换控制器（新版本，使用MappingConfig）
@@ -48,6 +52,38 @@ public class TransformController {
     }
     
     /**
+     * 调试接口：查看XML/JSON解析后的结构
+     */
+    @PostMapping("/debug/parse")
+    public ResponseEntity<Map<String, Object>> debugParse(@RequestBody DebugParseRequest request) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            String sourceData = request.getSourceData();
+            String sourceType = request.getSourceType();
+            
+            if (sourceData == null || sourceType == null) {
+                result.put("error", "源数据和类型不能为空");
+                return ResponseEntity.badRequest().body(result);
+            }
+            
+            // 解析数据
+            Map<String, Object> parsedMap = MessageConverterUtil.parseToMap(sourceData, sourceType);
+            
+            // 转换为JSON字符串以便查看
+            String jsonString = MessageConverterUtil.mapToString(parsedMap, "JSON", true);
+            
+            result.put("success", true);
+            result.put("parsedJson", jsonString);
+            result.put("parsedMap", parsedMap);
+            
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("error", e.getMessage());
+        }
+        return ResponseEntity.ok(result);
+    }
+    
+    /**
      * 请求DTO
      */
     @lombok.Data
@@ -56,6 +92,17 @@ public class TransformController {
     public static class TransformRequestV2 {
         private String sourceData;
         private MappingConfig mappingConfig;
+    }
+    
+    /**
+     * 调试解析请求DTO
+     */
+    @lombok.Data
+    @lombok.NoArgsConstructor
+    @lombok.AllArgsConstructor
+    public static class DebugParseRequest {
+        private String sourceData;
+        private String sourceType; // "JSON" 或 "XML"
     }
 }
 

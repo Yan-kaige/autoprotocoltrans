@@ -13,11 +13,17 @@
       <div class="editor-container">
         <div class="source-panel">
           <h3>源数据</h3>
+          <div style="margin-bottom: 10px;">
+            <el-select v-model="sourceProtocol" style="width: 100%;" @change="onSourceProtocolChange">
+              <el-option label="JSON" value="JSON" />
+              <el-option label="XML" value="XML" />
+            </el-select>
+          </div>
           <el-input
               v-model="sourceJson"
               type="textarea"
               :rows="10"
-              placeholder="请输入源JSON数据"
+              :placeholder="sourceProtocol === 'XML' ? '请输入源XML数据' : '请输入源JSON数据'"
               @input="parseSourceTree"
           />
           <el-divider />
@@ -55,6 +61,12 @@
 
         <div class="preview-panel">
           <h3>转换预览</h3>
+          <div style="margin-bottom: 10px;">
+            <el-select v-model="targetProtocol" style="width: 100%;">
+              <el-option label="JSON" value="JSON" />
+              <el-option label="XML" value="XML" />
+            </el-select>
+          </div>
           <el-button
               type="primary"
               size="small"
@@ -210,6 +222,8 @@ import { transformV2Api } from '../api'
 // --- 状态变量 ---
 const sourceJson = ref('')
 const sourceTreeData = ref([])
+const sourceProtocol = ref('JSON') // 源协议类型：JSON 或 XML
+const targetProtocol = ref('JSON') // 目标协议类型：JSON 或 XML
 const graphContainer = ref(null)
 let graph = null
 let nodeCounter = 0
@@ -324,9 +338,146 @@ const initGraph = () => {
 const parseSourceTree = () => {
   try {
     if (!sourceJson.value.trim()) { sourceTreeData.value = []; return }
-    const data = JSON.parse(sourceJson.value)
+    
+    let data
+    if (sourceProtocol.value === 'XML') {
+      // XML格式：解析XML为对象
+      data = parseXmlToObject(sourceJson.value)
+    } else {
+      // JSON格式：解析JSON
+      data = JSON.parse(sourceJson.value)
+    }
+    
+    // 转换为树结构显示
     sourceTreeData.value = [convertToTreeData(data, 'source', '$')]
-  } catch (e) { sourceTreeData.value = [] }
+    
+    // 调试：输出解析后的JSON结构
+    if (sourceProtocol.value === 'XML') {
+      console.log('XML解析后的结构:', JSON.stringify(data, null, 2))
+    }
+  } catch (e) { 
+    console.error('解析失败:', e)
+    sourceTreeData.value = [] 
+  }
+}
+
+// XML转对象（尽量与Jackson XmlMapper的结构保持一致）
+const parseXmlToObject = (xmlString) => {
+  try {
+    const parser = new DOMParser()
+    const xmlDoc = parser.parseFromString(xmlString, 'text/xml')
+    
+    // 检查是否有解析错误
+    const parseError = xmlDoc.querySelector('parsererror')
+    if (parseError) {
+      throw new Error('XML解析错误: ' + parseError.textContent)
+    }
+    
+    // 递归解析XML节点
+    const parseNode = (node) => {
+      // 收集所有子元素节点
+      const elementChildren = []
+      let textContent = ''
+      
+      for (let i = 0; i < node.childNodes.length; i++) {
+        const child = node.childNodes[i]
+        if (child.nodeType === 3) { // 文本节点
+          const text = child.textContent?.trim()
+          if (text) {
+            textContent += (textContent ? ' ' : '') + text
+          }
+        } else if (child.nodeType === 1) { // 元素节点
+          elementChildren.push(child)
+        }
+      }
+      
+      // 如果有子元素，解析为对象
+      if (elementChildren.length > 0) {
+        const result = {}
+        
+        // 处理属性（Jackson通常不使用@前缀，但为了兼容性保留）
+        if (node.attributes && node.attributes.length > 0) {
+          for (let i = 0; i < node.attributes.length; i++) {
+            const attr = node.attributes[i]
+            result['@' + attr.name] = attr.value
+          }
+        }
+        
+        // 如果有文本内容且没有子元素，添加文本
+        if (textContent && elementChildren.length === 0) {
+          // 如果只有文本，Jackson通常直接返回文本值
+          return textContent
+        }
+        
+        // 解析子元素
+        const elementMap = {}
+        elementChildren.forEach(child => {
+          const childName = child.nodeName
+          const childValue = parseNode(child)
+          
+          // 处理同名节点（转为数组）
+          if (elementMap[childName] !== undefined) {
+            if (!Array.isArray(elementMap[childName])) {
+              elementMap[childName] = [elementMap[childName]]
+            }
+            elementMap[childName].push(childValue)
+          } else {
+            elementMap[childName] = childValue
+          }
+        })
+        
+        // 合并属性、文本和子元素
+        Object.assign(result, elementMap)
+        
+        // 如果有文本内容，添加到结果中（Jackson通常不使用#text）
+        // 但为了前端显示，我们可以在某些情况下包含文本
+        if (textContent && Object.keys(elementMap).length > 0) {
+          // 如果既有文本又有子元素，可能需要特殊处理
+          // 这里简化处理，只显示子元素
+        }
+        
+        // 如果结果为空，返回空字符串
+        if (Object.keys(result).length === 0) {
+          return textContent || ''
+        }
+        
+        return result
+      } else {
+        // 没有子元素，直接返回文本内容
+        return textContent || ''
+      }
+    }
+    
+    // 从根元素开始解析
+    const rootElement = xmlDoc.documentElement
+    if (!rootElement) {
+      throw new Error('XML格式错误：找不到根元素')
+    }
+    
+    // Jackson XmlMapper解析XML时，会将根元素的内容直接解析为Map
+    // 而不是包装在根元素名中，所以直接返回根元素的内容
+    const rootValue = parseNode(rootElement)
+    
+    // 如果根元素的内容是一个对象，直接返回
+    // 这与Jackson XmlMapper的行为一致
+    if (typeof rootValue === 'object' && rootValue !== null) {
+      return rootValue
+    }
+    
+    // 如果根元素只有文本内容，包装一下
+    const rootName = rootElement.nodeName
+    const rootObj = {}
+    rootObj[rootName] = rootValue
+    return rootObj
+  } catch (e) {
+    throw new Error('XML解析失败: ' + e.message)
+  }
+}
+
+// 源协议类型变化时的处理
+const onSourceProtocolChange = () => {
+  // 切换协议类型时，清空树数据并重新解析
+  parseSourceTree()
 }
 
 const convertToTreeData = (obj, prefix, pathPrefix) => {
@@ -640,10 +791,24 @@ const updatePreview = async () => {
   previewing.value = true
   try {
     const res = await transformV2Api.transform(sourceJson.value, config)
-    previewResult.value = JSON.stringify(JSON.parse(res.data.transformedData), null, 2)
+    // 根据目标协议类型决定是否格式化
+    const transformedData = res.data.transformedData
+    if (targetProtocol.value === 'JSON') {
+      // JSON格式：尝试解析并格式化
+      try {
+        previewResult.value = JSON.stringify(JSON.parse(transformedData), null, 2)
+      } catch (e) {
+        previewResult.value = transformedData
+      }
+    } else {
+      // XML格式：直接显示
+      previewResult.value = transformedData
+    }
     previewError.value = ''
   } catch (e) {
-    previewError.value = '转换失败，请检查配置或脚本'
+    const errorMsg = e.response?.data?.errorMessage || e.message || '未知错误'
+    previewError.value = '转换失败: ' + errorMsg
+    console.error('转换失败详情:', e.response?.data || e)
   } finally { previewing.value = false }
 }
 
@@ -734,8 +899,8 @@ const exportMappingConfig = () => {
   })
   
   return {
-    sourceProtocol: 'JSON',
-    targetProtocol: 'JSON',
+    sourceProtocol: sourceProtocol.value,
+    targetProtocol: targetProtocol.value,
     prettyPrint: true,
     rules: rules
   }

@@ -268,7 +268,13 @@ public class TransformationEngine {
             Object document = JsonPath.parse(json).read(jsonPath);
             return document;
         } catch (Exception e) {
-            log.warn("JsonPath读取失败: {}, 错误: {}", jsonPath, e.getMessage());
+            // 添加详细日志用于调试
+            try {
+                String json = MessageConverterUtil.mapToString(sourceMap, "JSON", true);
+                log.warn("JsonPath读取失败: 路径={}, 错误={}, 源数据JSON=\n{}", jsonPath, e.getMessage(), json);
+            } catch (Exception ex) {
+                log.warn("JsonPath读取失败: 路径={}, 错误={}, 无法序列化源数据", jsonPath, e.getMessage());
+            }
             return null;
         }
     }
