@@ -37,6 +37,7 @@
                 draggable="true"
                 @dragstart="handleTreeDragStart($event, data, 'source')"
                 @dragend="handleTreeDragEnd"
+                @dblclick="handleTreeNodeDoubleClick(data, 'source')"
               >
                 <el-icon><Document /></el-icon>
                 {{ node.label }} ({{ data.type }})
@@ -270,7 +271,10 @@ const initGraph = () => {
     width: graphContainer.value.clientWidth,
     height: graphContainer.value.clientHeight,
     grid: true,
-    panning: true,
+    panning: {
+      enabled: true,
+      eventTypes: ['leftMouseDown', 'rightMouseDown'], // 允许左键和右键拖动平移
+    },
     mousewheel: {
       enabled: true,
       zoomAtMousePosition: true,
@@ -280,13 +284,14 @@ const initGraph = () => {
     },
     selecting: {
       enabled: true,
-      rubberband: false, // 禁用框选，避免与拖拽冲突
+      rubberband: true, // 启用框选
       strict: false,
-      showNodeSelectionBox: false,
+      showNodeSelectionBox: true,
       multiple: true, // 允许多选
       movable: true,
       selectCellOnMoved: false,
       selectNodeOnMoved: false,
+      modifiers: null, // 不需要按住修饰键即可框选
     },
     connecting: {
       router: {
@@ -321,21 +326,43 @@ const initGraph = () => {
   // 监听节点选中事件
   graph.on('node:selected', ({ node }) => {
     selectedCellsSet.add(node)
+    addSelectedStyle(node)
   })
   
   // 监听节点取消选中事件
   graph.on('node:unselected', ({ node }) => {
     selectedCellsSet.delete(node)
+    removeSelectedStyle(node)
   })
   
   // 监听边选中事件
   graph.on('edge:selected', ({ edge }) => {
     selectedCellsSet.add(edge)
+    addSelectedStyle(edge)
   })
   
   // 监听边取消选中事件
   graph.on('edge:unselected', ({ edge }) => {
     selectedCellsSet.delete(edge)
+    removeSelectedStyle(edge)
+  })
+  
+  // 监听框选事件（批量选中）
+  graph.on('selection:changed', ({ added, removed }) => {
+    // 添加选中的单元格
+    if (added && added.length > 0) {
+      added.forEach(cell => {
+        selectedCellsSet.add(cell)
+        addSelectedStyle(cell)
+      })
+    }
+    // 移除取消选中的单元格
+    if (removed && removed.length > 0) {
+      removed.forEach(cell => {
+        selectedCellsSet.delete(cell)
+        removeSelectedStyle(cell)
+      })
+    }
   })
   
   // 手动添加选中样式
@@ -473,6 +500,7 @@ const initGraph = () => {
     selectedCellsSet.clear()
     console.log('空白区域点击，清空选中')
   })
+  
   
   // 监听连线创建完成
   graph.on('edge:connected', ({ edge }) => {
@@ -627,36 +655,7 @@ const parseSourceTree = () => {
     const data = JSON.parse(sourceJson.value)
     sourceTreeData.value = [convertToTreeData(data, 'source', '$')]
     
-    // 默认展开所有节点（使用双重 nextTick 确保 DOM 完全更新）
-    nextTick(() => {
-      nextTick(() => {
-        if (sourceTreeRef.value && sourceTreeData.value.length > 0) {
-          try {
-            // 获取所有节点key
-            const allKeys = []
-            const getAllKeys = (nodes) => {
-              nodes.forEach(node => {
-                if (node.path) {
-                  allKeys.push(node.path)
-                }
-                if (node.children && node.children.length > 0) {
-                  getAllKeys(node.children)
-                }
-              })
-            }
-            getAllKeys(sourceTreeData.value)
-            
-            // 调用 setExpandedKeys 方法展开所有节点
-            if (allKeys.length > 0) {
-              sourceTreeRef.value.setExpandedKeys(allKeys)
-              console.log('已展开', allKeys.length, '个节点')
-            }
-          } catch (e) {
-            console.error('展开节点失败:', e)
-          }
-        }
-      })
-    })
+    // 使用 default-expand-all 属性自动展开，不需要手动调用 setExpandedKeys
   } catch (e) {
     // JSON解析失败时显示错误提示
     sourceTreeData.value = []
@@ -771,6 +770,31 @@ const handleTreeDragStart = (event, data, type) => {
 }
 
 const handleTreeDragEnd = () => {
+  draggingData = null
+}
+
+// 处理树节点双击事件 - 双击时自动创建节点到画布中心
+const handleTreeNodeDoubleClick = (data, type) => {
+  if (!graph || type !== 'source') return
+  
+  // 获取画布中心位置
+  const rect = graphContainer.value.getBoundingClientRect()
+  const centerX = rect.width / 2
+  const centerY = rect.height / 2
+  
+  // 创建模拟的拖拽数据
+  const mockDraggingData = { ...data, nodeType: type }
+  
+  // 创建模拟的 drop 事件对象
+  const mockEvent = {
+    preventDefault: () => {},
+    clientX: rect.left + centerX,
+    clientY: rect.top + centerY
+  }
+  
+  // 临时设置 draggingData，然后调用 handleCanvasDrop
+  draggingData = mockDraggingData
+  handleCanvasDrop(mockEvent)
   draggingData = null
 }
 
