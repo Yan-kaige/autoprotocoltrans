@@ -94,6 +94,13 @@
       <el-form :model="currentEdgeConfig" label-width="120px">
         <el-form-item label="源路径"><el-input v-model="currentEdgeConfig.sourcePath" disabled /></el-form-item>
         <el-form-item label="目标路径"><el-input v-model="currentEdgeConfig.targetPath" disabled /></el-form-item>
+        <el-form-item label="映射类型">
+          <el-select v-model="currentEdgeConfig.mappingType">
+            <el-option label="1对1" value="ONE_TO_ONE" />
+            <el-option label="1对多" value="ONE_TO_MANY" />
+            <el-option label="多对1" value="MANY_TO_ONE" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="转换类型">
           <el-select v-model="currentEdgeConfig.transformType" @change="onTransformTypeChange">
             <el-option label="直接赋值" value="DIRECT" />
@@ -103,16 +110,48 @@
             <el-option label="固定值" value="FIXED" />
           </el-select>
         </el-form-item>
+        
+        <!-- 函数映射配置 -->
+        <el-form-item v-if="currentEdgeConfig.transformType === 'FUNCTION'" label="函数名称">
+          <el-select v-model="currentEdgeConfig.transformConfig.function">
+            <el-option label="转大写" value="upperCase" />
+            <el-option label="转小写" value="lowerCase" />
+            <el-option label="去除空格" value="trim" />
+            <el-option label="当前日期" value="currentDate" />
+          </el-select>
+        </el-form-item>
+        
+        <!-- Groovy脚本配置 -->
+        <el-form-item v-if="currentEdgeConfig.transformType === 'GROOVY'" label="Groovy脚本">
+          <el-input
+            v-model="currentEdgeConfig.transformConfig.groovyScript"
+            type="textarea"
+            :rows="8"
+            placeholder="输入Groovy脚本代码&#10;&#10;示例1 - 去掉邮箱@后面的部分:&#10;input?.toString()?.split('@')?[0] ?: ''&#10;&#10;示例2 - 字符串拼接(多对1):&#10;def parts = input as List; return (parts[0] ?: '') + ' ' + (parts[1] ?: '')&#10;&#10;可用变量: input(输入值), inputs(List类型时的别名)"
+          />
+          <div style="font-size: 12px; color: #999; margin-top: 5px;">
+            <div><strong>变量说明：</strong></div>
+            <div>• input: 输入的字段值（单个值或List）</div>
+            <div>• inputs: 当输入是List时的别名</div>
+          </div>
+        </el-form-item>
+        
+        <!-- 字典映射配置 -->
         <el-form-item v-if="currentEdgeConfig.transformType === 'DICTIONARY'" label="字典映射">
           <div class="dict-config">
             <div v-for="(key, index) in dictKeys" :key="index" class="dict-item">
-              <el-input v-model="dictKeys[index]" style="width: 45%" />
+              <el-input v-model="dictKeys[index]" placeholder="源值" style="width: 45%" />
               <span style="margin: 0 10px">-></span>
-              <el-input v-model="dictValues[index]" style="width: 45%" />
+              <el-input v-model="dictValues[index]" placeholder="目标值" style="width: 45%" />
               <el-button link type="danger" @click="removeDictItem(index)"><el-icon><Delete /></el-icon></el-button>
             </div>
             <el-button @click="addDictItem" style="margin-top: 10px">添加映射项</el-button>
           </div>
+        </el-form-item>
+        
+        <!-- 固定值配置 -->
+        <el-form-item v-if="currentEdgeConfig.transformType === 'FIXED'" label="固定值">
+          <el-input v-model="currentEdgeConfig.transformConfig.fixedValue" placeholder="请输入固定值" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -149,7 +188,13 @@ const edgeConfigVisible = ref(false)
 const nodeEditVisible = ref(false)
 let currentNodeToEdit = null
 const currentNodeEdit = ref({ fieldName: '', path: '' })
-const currentEdgeConfig = ref({ sourcePath: '', targetPath: '', transformType: 'DIRECT', transformConfig: {} })
+const currentEdgeConfig = ref({ 
+  sourcePath: '', 
+  targetPath: '', 
+  mappingType: 'ONE_TO_ONE',
+  transformType: 'DIRECT', 
+  transformConfig: {} 
+})
 const dictKeys = ref([])
 const dictValues = ref([])
 
@@ -343,7 +388,7 @@ const handleCanvasDrop = (event) => {
     source: { cell: sId, port: 'p1' },
     target: { cell: tId, port: 'p1' },
     attrs: { line: { stroke: '#8f8f8f', strokeWidth: 2 } },
-    data: { transformType: 'DIRECT', mappingType: 'ONE_TO_ONE' },
+    data: { mappingType: 'ONE_TO_ONE', transformType: 'DIRECT', transformConfig: {} },
     labels: [{ attrs: { text: { text: 'DIRECT', fontSize: 10 } } }]
   })
 
@@ -370,34 +415,114 @@ const openEdgeConfig = (edge) => {
   const s = graph.getCellById(edge.getSourceCellId()), t = graph.getCellById(edge.getTargetCellId())
   if (!s || !t) return
   currentEdge = edge
-  const data = edge.getData()
+  const data = edge.getData() || {}
   currentEdgeConfig.value = {
     sourcePath: s.getData().path,
     targetPath: t.getData().path,
+    mappingType: data.mappingType || 'ONE_TO_ONE',
     transformType: data.transformType || 'DIRECT',
     transformConfig: data.transformConfig || {}
   }
+  
+  // 初始化字典配置
+  if (currentEdgeConfig.value.transformType === 'DICTIONARY') {
+    const dict = currentEdgeConfig.value.transformConfig?.dictionary || {}
+    dictKeys.value = Object.keys(dict)
+    dictValues.value = Object.values(dict)
+    if (dictKeys.value.length === 0) {
+      dictKeys.value = ['']
+      dictValues.value = ['']
+    }
+  } else {
+    dictKeys.value = []
+    dictValues.value = []
+  }
+  
   edgeConfigVisible.value = true
 }
 
 let currentEdge = null
 const onTransformTypeChange = () => {
-  dictKeys.value = ['']; dictValues.value = ['']
+  // 切换转换类型时，清空旧的配置
+  currentEdgeConfig.value.transformConfig = {}
+  if (currentEdgeConfig.value.transformType === 'DICTIONARY') {
+    // 初始化一个空的映射项
+    dictKeys.value = ['']
+    dictValues.value = ['']
+  } else {
+    dictKeys.value = []
+    dictValues.value = []
+  }
 }
-const addDictItem = () => { dictKeys.value.push(''); dictValues.value.push('') }
-const removeDictItem = (i) => { dictKeys.value.splice(i, 1); dictValues.value.splice(i, 1) }
+const addDictItem = () => { 
+  dictKeys.value.push('')
+  dictValues.value.push('') 
+}
+const removeDictItem = (i) => { 
+  dictKeys.value.splice(i, 1)
+  dictValues.value.splice(i, 1) 
+}
 
 const saveEdgeConfig = () => {
+  if (!currentEdge) return
+  
+  // 确保transformConfig存在
   const config = { ...currentEdgeConfig.value.transformConfig }
-  if (currentEdgeConfig.value.transformType === 'DICTIONARY') {
+  
+  // 根据转换类型保存不同的配置
+  if (currentEdgeConfig.value.transformType === 'FUNCTION') {
+    // 函数映射：确保function字段存在
+    if (!config.function) {
+      config.function = 'upperCase' // 默认值
+    }
+  } else if (currentEdgeConfig.value.transformType === 'GROOVY') {
+    // Groovy脚本：确保groovyScript字段存在
+    if (!config.groovyScript) {
+      config.groovyScript = 'return input'
+    }
+  } else if (currentEdgeConfig.value.transformType === 'DICTIONARY') {
+    // 字典映射：保存字典键值对
     const dict = {}
-    dictKeys.value.forEach((k, i) => { if(k) dict[k] = dictValues.value[i] })
+    dictKeys.value.forEach((k, i) => { 
+      if (k && dictValues.value[i]) {
+        dict[k] = dictValues.value[i] 
+      }
+    })
     config.dictionary = dict
+  } else if (currentEdgeConfig.value.transformType === 'FIXED') {
+    // 固定值：确保fixedValue字段存在
+    if (config.fixedValue === undefined) {
+      config.fixedValue = ''
+    }
   }
-  currentEdge.setData({ ...currentEdge.getData(), transformType: currentEdgeConfig.value.transformType, transformConfig: config })
-  currentEdge.setLabels([{ attrs: { text: { text: currentEdgeConfig.value.transformType } } }])
+  
+  // 更新边的数据
+  currentEdge.setData({
+    ...currentEdge.getData(),
+    mappingType: currentEdgeConfig.value.mappingType,
+    transformType: currentEdgeConfig.value.transformType,
+    transformConfig: config
+  })
+  
+  // 更新边的标签显示
+  currentEdge.setLabels([{
+    attrs: {
+      text: {
+        text: currentEdgeConfig.value.transformType,
+        fill: '#666',
+        fontSize: 10,
+      }
+    }
+  }])
+  
   edgeConfigVisible.value = false
-  updatePreview()
+  currentEdge = null
+  ElMessage.success('配置保存成功')
+  
+  // 配置保存后自动更新预览
+  nextTick(() => {
+    updatePreview()
+  })
 }
 
 const updatePreview = async () => {
@@ -416,17 +541,31 @@ const updatePreview = async () => {
 
 const exportMappingConfig = () => {
   const rules = graph.getEdges().map(edge => {
-    const s = graph.getCellById(edge.getSourceCellId()), t = graph.getCellById(edge.getTargetCellId())
-    const data = edge.getData()
+    const s = graph.getCellById(edge.getSourceCellId())
+    const t = graph.getCellById(edge.getTargetCellId())
+    const data = edge.getData() || {}
     if (!s || !t) return null
+    
+    let sourcePath = s.getData().path
+    if (sourcePath && !sourcePath.startsWith('$')) {
+      sourcePath = `$.${sourcePath.replace(/^\./, '')}`
+    }
+    
     return {
-      sourcePath: s.getData().path.startsWith('$') ? s.getData().path : `$.${s.getData().path}`,
+      sourcePath: sourcePath,
       targetPath: t.getData().path,
-      transformType: data.transformType,
-      transformConfig: data.transformConfig
+      mappingType: data.mappingType || 'ONE_TO_ONE',
+      transformType: data.transformType || 'DIRECT',
+      transformConfig: data.transformConfig || {}
     }
   }).filter(r => r)
-  return { rules }
+  
+  return {
+    sourceProtocol: 'JSON',
+    targetProtocol: 'JSON',
+    prettyPrint: true,
+    rules: rules
+  }
 }
 
 const exportConfig = () => {
