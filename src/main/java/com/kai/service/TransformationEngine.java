@@ -6,6 +6,7 @@ import com.kai.enums.TransformType;
 import com.kai.model.MappingConfig;
 import com.kai.model.MappingRule;
 import com.kai.strategy.TransformStrategy;
+import com.kai.util.MessageConverterUtil;
 import com.kai.util.PathUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,42 +35,66 @@ public class TransformationEngine {
     
     /**
      * 执行转换
+     * 支持 JSON 和 XML 格式的输入输出
      * 
-     * @param sourceJson 源JSON字符串
-     * @param config 映射配置
-     * @return 转换后的JSON字符串
+     * @param sourceData 源数据字符串（JSON或XML）
+     * @param config 映射配置（包含sourceProtocol和targetProtocol）
+     * @return 转换后的数据字符串（JSON或XML）
      */
-    public String transform(String sourceJson, MappingConfig config) throws Exception {
-        // 1. 解析源JSON为Map
-        Map<String, Object> sourceMap = parseJsonToMap(sourceJson);
+    public String transform(String sourceData, MappingConfig config) throws Exception {
+        // 1. 确定源数据类型（如果配置中没有，尝试自动检测）
+        String sourceType = config.getSourceProtocol();
+        if (sourceType == null || sourceType.isEmpty()) {
+            sourceType = MessageConverterUtil.isXmlFormat(sourceData) ? "XML" : "JSON";
+            log.info("自动检测源数据类型: {}", sourceType);
+        }
         
-        // 2. 创建目标Map
+        // 2. 解析源数据为Map（统一使用Map作为内部表示）
+        Map<String, Object> sourceMap = parseSourceToMap(sourceData, sourceType);
+        
+        // 3. 创建目标Map
         Map<String, Object> targetMap = new HashMap<>();
         
-        // 3. 遍历规则，执行转换
+        // 4. 遍历规则，执行转换
         if (config.getRules() != null) {
             for (MappingRule rule : config.getRules()) {
                 applyRule(sourceMap, rule, targetMap);
             }
         }
         
-        // 4. 将目标Map转换为JSON字符串
-        return mapToJson(targetMap, config.getPrettyPrint() != null && config.getPrettyPrint());
+        // 5. 确定目标数据类型（默认与源类型相同，如果配置中有则使用配置的）
+        String targetType = config.getTargetProtocol();
+        if (targetType == null || targetType.isEmpty()) {
+            targetType = sourceType; // 默认与源类型相同
+        }
+        
+        // 6. 将目标Map转换为目标格式字符串
+        boolean prettyPrint = config.getPrettyPrint() != null && config.getPrettyPrint();
+        return MessageConverterUtil.mapToString(targetMap, targetType, prettyPrint);
     }
     
     /**
-     * 解析JSON字符串为Map
+     * 解析源数据为Map（根据类型选择解析方式）
      */
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> parseJsonToMap(String json) throws Exception {
-        Object document = JsonPath.parse(json).json();
-        if (document instanceof Map) {
-            return (Map<String, Object>) document;
+    private Map<String, Object> parseSourceToMap(String sourceData, String sourceType) throws Exception {
+        try {
+            // 使用 MessageConverterUtil 统一解析
+            Map<String, Object> sourceMap = MessageConverterUtil.parseToMap(sourceData, sourceType);
+            
+            // 对于 XML，Jackson 可能会产生特殊的结构，需要适配 JsonPath
+            // JsonPath 需要 JSON 格式的数据，所以需要确保 Map 结构正确
+            // 如果根节点不是 Map，包装一下
+            if (!(sourceMap instanceof Map)) {
+                Map<String, Object> wrapper = new HashMap<>();
+                wrapper.put("root", sourceMap);
+                return wrapper;
+            }
+            
+            return sourceMap;
+        } catch (Exception e) {
+            log.error("解析{}数据失败: {}", sourceType, e.getMessage(), e);
+            throw e;
         }
-        // 如果根节点不是Map，包装一下
-        Map<String, Object> wrapper = new HashMap<>();
-        wrapper.put("root", document);
-        return wrapper;
     }
     
     /**
@@ -134,6 +159,7 @@ public class TransformationEngine {
             @SuppressWarnings("unchecked")
             List<Map<String, String>> subMappings = (List<Map<String, String>>) rule.getTransformConfig().get("subMappings");
             if (subMappings != null && sourceValue instanceof Map) {
+                @SuppressWarnings("unchecked")
                 Map<String, Object> sourceObj = (Map<String, Object>) sourceValue;
                 for (Map<String, String> subMapping : subMappings) {
                     String subSourcePath = subMapping.get("sourcePath");
@@ -188,11 +214,12 @@ public class TransformationEngine {
     
     /**
      * 使用JsonPath读取值
+     * 将Map转换为JSON字符串，然后使用JsonPath读取
      */
     private Object readJsonPath(Map<String, Object> sourceMap, String jsonPath) {
         try {
             // 将Map转换为JSON字符串，然后使用JsonPath读取
-            String json = mapToJson(sourceMap, false);
+            String json = MessageConverterUtil.mapToString(sourceMap, "JSON", false);
             Object document = JsonPath.parse(json).read(jsonPath);
             return document;
         } catch (Exception e) {
@@ -224,15 +251,5 @@ public class TransformationEngine {
         return strategy.transform(sourceValue, config);
     }
     
-    /**
-     * Map转JSON字符串
-     */
-    private String mapToJson(Map<String, Object> map, boolean prettyPrint) throws Exception {
-        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-        if (prettyPrint) {
-            return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(map);
-        }
-        return mapper.writeValueAsString(map);
-    }
 }
 

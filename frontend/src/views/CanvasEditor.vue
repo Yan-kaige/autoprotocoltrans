@@ -206,6 +206,7 @@ const sourceJson = ref('')
 const sourceTreeData = ref([])
 const graphContainer = ref(null)
 let graph = null
+let selectedCellsSet = new Set() // 跟踪选中的单元格
 
 const previewResult = ref('')
 const previewError = ref('')
@@ -250,6 +251,9 @@ onUnmounted(() => {
     keyDownHandler = null
   }
   
+  // 清空选中集合
+  selectedCellsSet.clear()
+  
   if (graph) {
     graph.dispose()
     graph = null
@@ -272,6 +276,16 @@ const initGraph = () => {
       minScale: 0.5,
       maxScale: 3,
     },
+    selecting: {
+      enabled: true,
+      rubberband: false, // 禁用框选，避免与拖拽冲突
+      strict: false,
+      showNodeSelectionBox: false,
+      multiple: true, // 允许多选
+      movable: true,
+      selectCellOnMoved: false,
+      selectNodeOnMoved: false,
+    },
     connecting: {
       router: {
         name: 'manhattan',
@@ -291,6 +305,7 @@ const initGraph = () => {
       },
       validateConnection: ({ sourceMagnet, targetMagnet, sourceCell, targetCell }) => {
         // 验证连接：源节点必须是source类型，目标节点必须是target类型
+        // 允许多条线连向同一个目标节点（支持多对一映射）
         if (sourceCell && targetCell && sourceCell !== targetCell) {
           const sourceData = sourceCell.getData()
           const targetData = targetCell.getData()
@@ -301,9 +316,150 @@ const initGraph = () => {
     },
   })
   
-  // 监听连线创建事件
-  graph.on('edge:click', ({ edge }) => {
+  // 监听节点选中事件
+  graph.on('node:selected', ({ node }) => {
+    selectedCellsSet.add(node)
+  })
+  
+  // 监听节点取消选中事件
+  graph.on('node:unselected', ({ node }) => {
+    selectedCellsSet.delete(node)
+  })
+  
+  // 监听边选中事件
+  graph.on('edge:selected', ({ edge }) => {
+    selectedCellsSet.add(edge)
+  })
+  
+  // 监听边取消选中事件
+  graph.on('edge:unselected', ({ edge }) => {
+    selectedCellsSet.delete(edge)
+  })
+  
+  // 手动添加选中样式
+  const addSelectedStyle = (cell) => {
+    try {
+      const view = graph.findViewByCell(cell)
+      if (view && view.container) {
+        view.container.classList.add('x6-cell-selected')
+        // 检查是否是节点
+        const isNode = cell.shape === 'rect' || cell.isNode?.() || (cell.getData && cell.getData().type)
+        if (isNode) {
+          view.container.classList.add('x6-node-selected')
+          // 修改节点边框颜色来显示选中状态
+          const attrs = cell.getAttrs()
+          if (attrs && attrs.body) {
+            cell.setAttrs({
+              body: {
+                ...attrs.body,
+                stroke: '#ff4d4f',
+                strokeWidth: 3
+              }
+            })
+          }
+        } else {
+          view.container.classList.add('x6-edge-selected')
+          // 修改边的颜色来显示选中状态
+          const attrs = cell.getAttrs()
+          if (attrs && attrs.line) {
+            cell.setAttrs({
+              line: {
+                ...attrs.line,
+                stroke: '#ff4d4f',
+                strokeWidth: 3
+              }
+            })
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('添加选中样式失败:', e)
+    }
+  }
+  
+  // 手动移除选中样式
+  const removeSelectedStyle = (cell) => {
+    try {
+      const view = graph.findViewByCell(cell)
+      if (view && view.container) {
+        view.container.classList.remove('x6-cell-selected', 'x6-node-selected', 'x6-edge-selected')
+        // 恢复原始样式
+        const isNode = cell.shape === 'rect' || cell.isNode?.() || (cell.getData && cell.getData().type)
+        if (isNode) {
+          const data = cell.getData()
+          const isSource = data?.type === 'source'
+          const attrs = cell.getAttrs()
+          if (attrs && attrs.body) {
+            cell.setAttrs({
+              body: {
+                ...attrs.body,
+                stroke: isSource ? '#2196f3' : '#9c27b0',
+                strokeWidth: 1
+              }
+            })
+          }
+        } else {
+          const attrs = cell.getAttrs()
+          if (attrs && attrs.line) {
+            cell.setAttrs({
+              line: {
+                ...attrs.line,
+                stroke: '#8f8f8f',
+                strokeWidth: 2
+              }
+            })
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('移除选中样式失败:', e)
+    }
+  }
+  
+  // 监听节点点击事件（手动选中节点）
+  graph.on('node:click', ({ node, e }) => {
+    e.stopPropagation()
+    // 切换选中状态
+    if (selectedCellsSet.has(node)) {
+      // 如果已选中，取消选中
+      selectedCellsSet.delete(node)
+      removeSelectedStyle(node)
+      console.log('节点取消选中:', node.id)
+    } else {
+      // 如果未选中，选中它
+      selectedCellsSet.add(node)
+      addSelectedStyle(node)
+      console.log('节点选中:', node.id)
+    }
+  })
+  
+  // 监听连线点击事件（手动选中边并打开配置）
+  graph.on('edge:click', ({ edge, e }) => {
+    e.stopPropagation()
+    // 切换选中状态
+    if (selectedCellsSet.has(edge)) {
+      // 如果已选中，取消选中
+      selectedCellsSet.delete(edge)
+      removeSelectedStyle(edge)
+      console.log('边取消选中:', edge.id)
+    } else {
+      // 如果未选中，选中它
+      selectedCellsSet.add(edge)
+      addSelectedStyle(edge)
+      console.log('边选中:', edge.id)
+    }
     openEdgeConfig(edge)
+  })
+  
+  // 监听画布空白区域点击（取消选中）
+  graph.on('blank:click', () => {
+    // 取消所有选中
+    const cellsToUnselect = Array.from(selectedCellsSet)
+    cellsToUnselect.forEach(cell => {
+      removeSelectedStyle(cell)
+    })
+    selectedCellsSet.clear()
+    console.log('空白区域点击，清空选中')
   })
   
   // 监听连线创建完成
@@ -343,12 +499,16 @@ const initGraph = () => {
   
   // 监听节点删除
   graph.on('node:removed', ({ node }) => {
+    // 从选中集合中移除
+    selectedCellsSet.delete(node)
+    
     // 节点删除时，自动删除相关的连线
     const edges = graph.getEdges()
     edges.forEach(edge => {
       const sourceId = edge.getSourceCellId()
       const targetId = edge.getTargetCellId()
       if (sourceId === node.id || targetId === node.id) {
+        selectedCellsSet.delete(edge) // 同时从选中集合中移除连线
         graph.removeEdge(edge.id)
       }
     })
@@ -360,7 +520,10 @@ const initGraph = () => {
   })
   
   // 监听边的删除
-  graph.on('edge:removed', () => {
+  graph.on('edge:removed', ({ edge }) => {
+    // 从选中集合中移除
+    selectedCellsSet.delete(edge)
+    
     nextTick(() => {
       updatePreview()
     })
@@ -368,28 +531,79 @@ const initGraph = () => {
   
   // 启用键盘删除（使用window事件监听）
   keyDownHandler = (e) => {
+    // 只处理 Delete 和 Backspace 键
+    if (e.key !== 'Delete' && e.key !== 'Backspace') {
+      return
+    }
+    
     // 检查是否有选中的单元格
-    if (graph && (e.key === 'Delete' || e.key === 'Backspace')) {
-      const cells = graph.getSelectedCells()
-      if (cells.length) {
-        // 如果焦点不在输入框中，才执行删除
-        const activeElement = document.activeElement
-        const isInput = activeElement && (
-          activeElement.tagName === 'INPUT' || 
-          activeElement.tagName === 'TEXTAREA' ||
-          activeElement.isContentEditable
-        )
-        if (!isInput) {
-          e.preventDefault()
-          graph.removeCells(cells)
-        }
-      }
+    if (!graph) {
+      return
+    }
+    
+    // 获取选中的单元格 - 直接使用我们手动维护的集合
+    const selectedCells = Array.from(selectedCellsSet).filter(cell => {
+      // 确保单元格仍然存在于图中
+      return cell && graph.getCellById(cell.id)
+    })
+    
+    console.log('准备删除，selectedCellsSet大小:', selectedCellsSet.size, '筛选后:', selectedCells.length)
+    
+    if (selectedCells.length === 0) {
+      console.log('没有选中的单元格可以删除')
+      return
+    }
+    
+    console.log('找到', selectedCells.length, '个选中的单元格:', selectedCells.map(c => c.id))
+    
+    // 检查焦点是否在输入框中
+    const activeElement = document.activeElement
+    const isInput = activeElement && (
+      activeElement.tagName === 'INPUT' || 
+      activeElement.tagName === 'TEXTAREA' ||
+      activeElement.isContentEditable ||
+      activeElement.closest('.el-input') ||
+      activeElement.closest('.el-textarea') ||
+      activeElement.closest('.el-input__inner') ||
+      activeElement.closest('.el-textarea__inner')
+    )
+    
+    // 如果焦点在输入框中，不执行删除（让输入框自己处理）
+    if (isInput) {
+      return
+    }
+    
+    // 执行删除
+    e.preventDefault()
+    e.stopPropagation()
+    e.stopImmediatePropagation()
+    
+    try {
+      console.log('执行删除操作，删除', selectedCells.length, '个单元格')
+      graph.removeCells(selectedCells)
+      
+      // 从选中集合中移除已删除的单元格
+      selectedCells.forEach(cell => {
+        selectedCellsSet.delete(cell)
+      })
+      
+      // 删除后更新预览
+      nextTick(() => {
+        updatePreview()
+      })
+    } catch (error) {
+      console.error('删除节点/连线失败:', error, error.stack)
     }
   }
   
-  // 使用window监听键盘事件
-  window.addEventListener('keydown', keyDownHandler)
-  graphContainer.value.setAttribute('tabindex', '0') // 使其可聚焦
+  // 使用window监听键盘事件（捕获阶段，确保优先处理）
+  window.addEventListener('keydown', keyDownHandler, true)
+  
+  // 确保画布容器可以接收焦点
+  if (graphContainer.value) {
+    graphContainer.value.setAttribute('tabindex', '0')
+    graphContainer.value.style.outline = 'none' // 移除焦点时的边框
+  }
 }
 
 const parseSourceTree = () => {
@@ -401,7 +615,9 @@ const parseSourceTree = () => {
     const data = JSON.parse(sourceJson.value)
     sourceTreeData.value = [convertToTreeData(data, 'source', '$')]
   } catch (e) {
-    console.error('解析源JSON失败:', e)
+    // JSON解析失败时不显示错误（用户可能还在输入中）
+    // 只有在真正需要时才显示错误，避免用户输入时频繁报错
+    sourceTreeData.value = []
   }
 }
 
@@ -544,6 +760,8 @@ const handleCanvasDrop = (event) => {
     shape: 'rect',
     label: fieldName,
     id: sourceNodeId,
+    selectable: true, // 确保可选中
+    movable: true, // 确保可移动
     data: {
       type: 'source',
       path: draggingData.path,
@@ -594,6 +812,8 @@ const handleCanvasDrop = (event) => {
     shape: 'rect',
     label: fieldName,
     id: targetNodeId,
+    selectable: true, // 确保可选中
+    movable: true, // 确保可移动
     data: {
       type: 'target',
       path: fieldName, // 默认路径就是字段名
@@ -641,6 +861,7 @@ const handleCanvasDrop = (event) => {
   graph.addEdge({
     source: { cell: sourceNodeId, port: 'port-right' },
     target: { cell: targetNodeId, port: 'port-left' },
+    selectable: true, // 确保连线可选中
     attrs: {
       line: {
         stroke: '#8f8f8f',
@@ -832,36 +1053,86 @@ const exportMappingConfig = () => {
   const nodes = graph.getNodes()
   const edges = graph.getEdges()
   
-  const rules = []
+  // 按目标节点分组，处理多对一映射
+  const targetToEdgesMap = new Map()
   
   edges.forEach(edge => {
-    const sourceNode = graph.getCellById(edge.getSourceCellId())
     const targetNode = graph.getCellById(edge.getTargetCellId())
+    if (targetNode) {
+      const targetId = targetNode.id
+      if (!targetToEdgesMap.has(targetId)) {
+        targetToEdgesMap.set(targetId, [])
+      }
+      targetToEdgesMap.get(targetId).push(edge)
+    }
+  })
+  
+  const rules = []
+  
+  // 遍历每个目标节点，生成规则
+  targetToEdgesMap.forEach((edgesList, targetId) => {
+    const targetNode = graph.getCellById(targetId)
+    if (!targetNode) return
     
-      if (sourceNode && targetNode) {
-        const sourceData = sourceNode.getData()
-        const targetData = targetNode.getData()
-        const edgeData = edge.getData() || {}
-        
-        // 使用节点数据中的path，如果没有则使用JsonPath格式（源节点需要$前缀）
-        let sourcePath = sourceData?.path || ''
-        if (sourcePath && !sourcePath.startsWith('$') && sourceData?.type === 'source') {
-          sourcePath = '$.' + sourcePath.replace(/^\./, '')
+    const targetData = targetNode.getData()
+    const targetPath = targetData?.path || ''
+    
+    if (edgesList.length === 1) {
+      // 一对一映射
+      const edge = edgesList[0]
+      const sourceNode = graph.getCellById(edge.getSourceCellId())
+      if (!sourceNode) return
+      
+      const sourceData = sourceNode.getData()
+      const edgeData = edge.getData() || {}
+      
+      let sourcePath = sourceData?.path || ''
+      if (sourcePath && !sourcePath.startsWith('$') && sourceData?.type === 'source') {
+        sourcePath = '$.' + sourcePath.replace(/^\./, '')
+      }
+      
+      const rule = {
+        sourcePath: sourcePath,
+        targetPath: targetPath,
+        mappingType: edgeData.mappingType || 'ONE_TO_ONE',
+        transformType: edgeData.transformType || 'DIRECT',
+        transformConfig: edgeData.transformConfig || {}
+      }
+      rules.push(rule)
+    } else {
+      // 多对一映射：多条边指向同一个目标节点
+      const sourcePaths = []
+      const firstEdgeData = edgesList[0].getData() || {}
+      
+      edgesList.forEach(edge => {
+        const sourceNode = graph.getCellById(edge.getSourceCellId())
+        if (sourceNode) {
+          const sourceData = sourceNode.getData()
+          let sourcePath = sourceData?.path || ''
+          if (sourcePath && !sourcePath.startsWith('$') && sourceData?.type === 'source') {
+            sourcePath = '$.' + sourcePath.replace(/^\./, '')
+          }
+          if (sourcePath) {
+            sourcePaths.push(sourcePath)
+          }
         }
-        
-        let targetPath = targetData?.path || ''
-        // 目标路径不需要$前缀，保持原样
-        
+      })
+      
+      if (sourcePaths.length > 0) {
         const rule = {
-          sourcePath: sourcePath,
+          sourcePath: sourcePaths[0], // 主源路径
+          additionalSources: sourcePaths.slice(1), // 额外的源路径
           targetPath: targetPath,
-          mappingType: edgeData.mappingType || 'ONE_TO_ONE',
-          transformType: edgeData.transformType || 'DIRECT',
-          transformConfig: edgeData.transformConfig || {}
+          mappingType: 'MANY_TO_ONE',
+          transformType: firstEdgeData.transformType || 'GROOVY',
+          transformConfig: firstEdgeData.transformConfig || {
+            // 默认Groovy脚本：拼接所有输入值
+            groovyScript: `def parts = input as List; return parts.collect { it?.toString() ?: '' }.join(' ')`
+          }
         }
-        
         rules.push(rule)
       }
+    }
   })
   
   return {
