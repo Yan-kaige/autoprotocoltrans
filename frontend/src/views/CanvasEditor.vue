@@ -21,7 +21,7 @@
               @input="parseSourceTree"
           />
           <el-divider />
-          <div class="tree-tip">拖拽字段到画布，自动创建映射</div>
+          <div class="tree-tip">拖拽或双击字段到画布</div>
           <el-tree
               ref="sourceTreeRef"
               :data="sourceTreeData"
@@ -36,7 +36,7 @@
                   draggable="true"
                   @dragstart="handleTreeDragStart($event, data, 'source')"
                   @dragend="handleTreeDragEnd"
-                  @dblclick="handleTreeNodeDoubleClick(data, 'source')"
+                  @dblclick="handleTreeNodeDoubleClick(data)"
               >
                 <el-icon><Document /></el-icon>
                 {{ node.label }} ({{ data.type }})
@@ -69,7 +69,7 @@
               type="textarea"
               :rows="20"
               readonly
-              placeholder="配置映射规则后，点击刷新预览查看转换结果"
+              placeholder="配置映射规则后，点击刷新预览"
               style="font-family: 'Courier New', monospace;"
           />
           <div v-if="previewError" style="margin-top: 10px; color: #f56c6c; font-size: 12px;">
@@ -81,12 +81,8 @@
 
     <el-dialog v-model="nodeEditVisible" title="编辑目标字段" width="500px">
       <el-form :model="currentNodeEdit" label-width="100px">
-        <el-form-item label="字段名">
-          <el-input v-model="currentNodeEdit.fieldName" />
-        </el-form-item>
-        <el-form-item label="字段路径">
-          <el-input v-model="currentNodeEdit.path" />
-        </el-form-item>
+        <el-form-item label="字段名"><el-input v-model="currentNodeEdit.fieldName" /></el-form-item>
+        <el-form-item label="字段路径"><el-input v-model="currentNodeEdit.path" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="nodeEditVisible = false">取消</el-button>
@@ -110,9 +106,9 @@
         <el-form-item v-if="currentEdgeConfig.transformType === 'DICTIONARY'" label="字典映射">
           <div class="dict-config">
             <div v-for="(key, index) in dictKeys" :key="index" class="dict-item">
-              <el-input v-model="dictKeys[index]" placeholder="源值" style="width: 45%" />
+              <el-input v-model="dictKeys[index]" style="width: 45%" />
               <span style="margin: 0 10px">-></span>
-              <el-input v-model="dictValues[index]" placeholder="目标值" style="width: 45%" />
+              <el-input v-model="dictValues[index]" style="width: 45%" />
               <el-button link type="danger" @click="removeDictItem(index)"><el-icon><Delete /></el-icon></el-button>
             </div>
             <el-button @click="addDictItem" style="margin-top: 10px">添加映射项</el-button>
@@ -130,16 +126,18 @@
 <script setup>
 import { ref, onMounted, nextTick, onUnmounted } from 'vue'
 import { Graph } from '@antv/x6'
-// 导入 Selection 插件
 import { Selection } from '@antv/x6-plugin-selection'
 import { ElMessage } from 'element-plus'
 import { Document, Delete } from '@element-plus/icons-vue'
 import { transformV2Api } from '../api'
 
+// --- 状态变量 ---
 const sourceJson = ref('')
 const sourceTreeData = ref([])
 const graphContainer = ref(null)
 let graph = null
+let nodeCounter = 0
+let autoLayoutCount = 0 // 用于双击排版的计数器
 
 const previewResult = ref('')
 const previewError = ref('')
@@ -151,7 +149,7 @@ const edgeConfigVisible = ref(false)
 const nodeEditVisible = ref(false)
 let currentNodeToEdit = null
 const currentNodeEdit = ref({ fieldName: '', path: '' })
-const currentEdgeConfig = ref({ sourcePath: '', targetPath: '', mappingType: 'ONE_TO_ONE', transformType: 'DIRECT', transformConfig: {} })
+const currentEdgeConfig = ref({ sourcePath: '', targetPath: '', transformType: 'DIRECT', transformConfig: {} })
 const dictKeys = ref([])
 const dictValues = ref([])
 
@@ -175,7 +173,7 @@ const initGraph = () => {
     grid: true,
     panning: {
       enabled: true,
-      eventTypes: ['rightMouseDown'], // 改为右键平移，左键留给框选
+      eventTypes: ['rightMouseDown'],
     },
     mousewheel: {
       enabled: true,
@@ -201,19 +199,17 @@ const initGraph = () => {
     },
   })
 
-  // --- 使用插件配置选择功能 ---
   graph.use(
       new Selection({
         enabled: true,
         multiple: true,
-        rubberband: true, // 启用左键框选
+        rubberband: true,
         movable: true,
-        showNodeSelectionBox: true, // 节点选中时显示外框
-        showEdgeSelectionBox: true, // 边选中时显示外框
+        showNodeSelectionBox: true,
+        showEdgeSelectionBox: true,
       })
   )
 
-  // 监听双击打开配置
   graph.on('node:dblclick', ({ node }) => {
     if (node.getData()?.type === 'target') openNodeEditDialog(node)
   })
@@ -222,12 +218,11 @@ const initGraph = () => {
     openEdgeConfig(edge)
   })
 
-  // 自动更新预览
+  // 监听各种操作自动刷新预览
   graph.on('edge:connected', () => nextTick(() => updatePreview()))
   graph.on('node:removed', () => nextTick(() => updatePreview()))
   graph.on('edge:removed', () => nextTick(() => updatePreview()))
 
-  // 键盘删除逻辑（直接从 graph 获取选中项）
   keyDownHandler = (e) => {
     if (e.key !== 'Delete' && e.key !== 'Backspace') return
     const active = document.activeElement
@@ -242,8 +237,7 @@ const initGraph = () => {
   window.addEventListener('keydown', keyDownHandler)
 }
 
-// --- 逻辑函数部分 ---
-
+// --- 树逻辑 ---
 const parseSourceTree = () => {
   try {
     if (!sourceJson.value.trim()) { sourceTreeData.value = []; return }
@@ -276,11 +270,43 @@ const convertToTreeData = (obj, prefix, pathPrefix) => {
   return { label: 'Source Root', path: pathPrefix, type: typeof obj, children: traverse(obj) }
 }
 
+// --- 拖拽与双击逻辑 ---
 let draggingData = null
-let nodeCounter = 0
 const handleTreeDragStart = (e, data) => { draggingData = data }
 const handleTreeDragEnd = () => { draggingData = null }
 
+/**
+ * 双击树节点：计算排版位置并自动添加
+ */
+const handleTreeNodeDoubleClick = (data) => {
+  if (!graph) return
+  const rect = graphContainer.value.getBoundingClientRect()
+
+  // 智能排版算法：每 10 个换一列
+  const ROW_HEIGHT = 60
+  const COLUMN_WIDTH = 450
+  const row = autoLayoutCount % 10
+  const col = Math.floor(autoLayoutCount / 10)
+
+  // 基础起始点：x=250 (留出源节点空间), y=50
+  const targetX = 250 + (col * COLUMN_WIDTH)
+  const targetY = 50 + (row * ROW_HEIGHT)
+
+  draggingData = data
+  const mockEvent = {
+    preventDefault: () => {},
+    clientX: rect.left + targetX,
+    clientY: rect.top + targetY
+  }
+
+  handleCanvasDrop(mockEvent)
+  autoLayoutCount++ // 计数器加1，确保下次不重叠
+  draggingData = null
+}
+
+/**
+ * 画布放置逻辑：处理手动拖拽和双击生成的坐标
+ */
 const handleCanvasDrop = (event) => {
   if (!graph || !draggingData) return
   const rect = graphContainer.value.getBoundingClientRect()
@@ -290,7 +316,7 @@ const handleCanvasDrop = (event) => {
   const fieldName = draggingData.label
   const sId = `s_${++nodeCounter}`, tId = `t_${++nodeCounter}`
 
-  // 1. 创建源节点
+  // 1. 源节点
   graph.addNode({
     id: sId, x: x - 200, y: y - 25, width: 140, height: 40, label: fieldName,
     data: { type: 'source', path: draggingData.path },
@@ -298,10 +324,10 @@ const handleCanvasDrop = (event) => {
       groups: { right: { position: 'right', attrs: { circle: { r: 4, magnet: true, stroke: '#2196f3', fill: '#fff' } } } },
       items: [{ id: 'p1', group: 'right' }]
     },
-    attrs: { body: { fill: '#e3f2fd', stroke: '#2196f3', rx: 4 }, text: { text: fieldName } }
+    attrs: { body: { fill: '#e3f2fd', stroke: '#2196f3', rx: 4 }, text: { text: fieldName, fontSize: 12 } }
   })
 
-  // 2. 创建目标节点
+  // 2. 目标节点
   graph.addNode({
     id: tId, x: x + 50, y: y - 25, width: 140, height: 40, label: fieldName,
     data: { type: 'target', path: fieldName },
@@ -309,10 +335,10 @@ const handleCanvasDrop = (event) => {
       groups: { left: { position: 'left', attrs: { circle: { r: 4, magnet: true, stroke: '#9c27b0', fill: '#fff' } } } },
       items: [{ id: 'p1', group: 'left' }]
     },
-    attrs: { body: { fill: '#f3e5f5', stroke: '#9c27b0', rx: 4 }, text: { text: fieldName } }
+    attrs: { body: { fill: '#f3e5f5', stroke: '#9c27b0', rx: 4 }, text: { text: fieldName, fontSize: 12 } }
   })
 
-  // 3. 创建初始连线
+  // 3. 连线
   graph.addEdge({
     source: { cell: sId, port: 'p1' },
     target: { cell: tId, port: 'p1' },
@@ -321,13 +347,11 @@ const handleCanvasDrop = (event) => {
     labels: [{ attrs: { text: { text: 'DIRECT', fontSize: 10 } } }]
   })
 
-  // 4. 重点：手动触发预览刷新
-  nextTick(() => {
-    updatePreview()
-  })
+  // 4. 自动刷新预览
+  nextTick(() => updatePreview())
 }
 
-// 对话框及预览逻辑保持原样，省略重复部分以减小篇幅...
+// --- 配置与转换逻辑 ---
 const openNodeEditDialog = (node) => {
   currentNodeToEdit = node
   const data = node.getData()
@@ -347,41 +371,61 @@ const openEdgeConfig = (edge) => {
   if (!s || !t) return
   currentEdge = edge
   const data = edge.getData()
-  currentEdgeConfig.value = { sourcePath: s.getData().path, targetPath: t.getData().path, transformType: data.transformType || 'DIRECT', transformConfig: data.transformConfig || {} }
+  currentEdgeConfig.value = {
+    sourcePath: s.getData().path,
+    targetPath: t.getData().path,
+    transformType: data.transformType || 'DIRECT',
+    transformConfig: data.transformConfig || {}
+  }
   edgeConfigVisible.value = true
 }
 
 let currentEdge = null
+const onTransformTypeChange = () => {
+  dictKeys.value = ['']; dictValues.value = ['']
+}
+const addDictItem = () => { dictKeys.value.push(''); dictValues.value.push('') }
+const removeDictItem = (i) => { dictKeys.value.splice(i, 1); dictValues.value.splice(i, 1) }
+
 const saveEdgeConfig = () => {
-  currentEdge.setData(currentEdgeConfig.value)
+  const config = { ...currentEdgeConfig.value.transformConfig }
+  if (currentEdgeConfig.value.transformType === 'DICTIONARY') {
+    const dict = {}
+    dictKeys.value.forEach((k, i) => { if(k) dict[k] = dictValues.value[i] })
+    config.dictionary = dict
+  }
+  currentEdge.setData({ ...currentEdge.getData(), transformType: currentEdgeConfig.value.transformType, transformConfig: config })
   currentEdge.setLabels([{ attrs: { text: { text: currentEdgeConfig.value.transformType } } }])
   edgeConfigVisible.value = false
   updatePreview()
 }
 
 const updatePreview = async () => {
-  if (!sourceJson.value) return
+  if (!sourceJson.value || previewing.value) return
   const config = exportMappingConfig()
   if (!config.rules.length) return
   previewing.value = true
   try {
     const res = await transformV2Api.transform(sourceJson.value, config)
     previewResult.value = JSON.stringify(JSON.parse(res.data.transformedData), null, 2)
-  } catch (e) { previewError.value = '转换失败' }
-  finally { previewing.value = false }
+    previewError.value = ''
+  } catch (e) {
+    previewError.value = '转换失败，请检查配置或脚本'
+  } finally { previewing.value = false }
 }
 
 const exportMappingConfig = () => {
   const rules = graph.getEdges().map(edge => {
     const s = graph.getCellById(edge.getSourceCellId()), t = graph.getCellById(edge.getTargetCellId())
     const data = edge.getData()
+    if (!s || !t) return null
     return {
       sourcePath: s.getData().path.startsWith('$') ? s.getData().path : `$.${s.getData().path}`,
       targetPath: t.getData().path,
       transformType: data.transformType,
       transformConfig: data.transformConfig
     }
-  })
+  }).filter(r => r)
   return { rules }
 }
 
@@ -390,13 +434,6 @@ const exportConfig = () => {
   navigator.clipboard.writeText(JSON.stringify(config, null, 2))
   ElMessage.success('配置已复制')
 }
-
-const handleTreeNodeDoubleClick = (data) => {
-  const mockEvent = { clientX: window.innerWidth / 2, clientY: window.innerHeight / 2, preventDefault: () => {} }
-  draggingData = data
-  handleCanvasDrop(mockEvent)
-  draggingData = null
-}
 </script>
 
 <style scoped>
@@ -404,12 +441,12 @@ const handleTreeNodeDoubleClick = (data) => {
 .editor-card { height: calc(100vh - 100px); }
 .editor-container { display: flex; gap: 20px; height: calc(100vh - 200px); }
 .source-panel { width: 300px; display: flex; flex-direction: column; }
-.canvas-panel { flex: 1; border: 1px solid #ddd; border-radius: 4px; overflow: hidden; }
+.canvas-panel { flex: 1; border: 1px solid #ddd; border-radius: 4px; overflow: hidden; position: relative; }
 .graph-container { width: 100%; height: 100%; background-color: #fafafa; }
 .preview-panel { width: 350px; display: flex; flex-direction: column; }
 .data-tree { flex: 1; overflow: auto; border: 1px solid #ddd; padding: 10px; }
+.dict-item { display: flex; align-items: center; margin-bottom: 8px; }
 
-/* 必须添加：确保选中状态有视觉反馈 */
 :deep(.x6-node-selected) rect {
   stroke: #ff4d4f !important;
   stroke-width: 2px !important;
