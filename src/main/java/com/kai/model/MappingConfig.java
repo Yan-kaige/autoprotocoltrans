@@ -28,5 +28,15 @@ public class MappingConfig {
      * 是否格式化输出（JSON格式化、XML缩进）
      */
     private Boolean prettyPrint = false;
+    
+    /**
+     * XML根元素名称（当targetProtocol为XML时使用）
+     */
+    private String xmlRootElementName;
+    
+    /**
+     * 是否包含XML声明（当targetProtocol为XML时使用）
+     */
+    private Boolean includeXmlDeclaration = false;
 }
 

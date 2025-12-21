@@ -70,7 +70,9 @@ public class TransformationEngine {
         
         // 6. 将目标Map转换为目标格式字符串
         boolean prettyPrint = config.getPrettyPrint() != null && config.getPrettyPrint();
-        return MessageConverterUtil.mapToString(targetMap, targetType, prettyPrint);
+        String xmlRootElementName = config.getXmlRootElementName();
+        boolean includeXmlDeclaration = config.getIncludeXmlDeclaration() != null && config.getIncludeXmlDeclaration();
+        return MessageConverterUtil.mapToString(targetMap, targetType, prettyPrint, xmlRootElementName, includeXmlDeclaration);
     }
     
     /**

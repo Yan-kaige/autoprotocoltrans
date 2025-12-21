@@ -1,9 +1,11 @@
 package com.kai.util;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectWriter;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -62,6 +64,35 @@ public class MessageConverterUtil {
      * @throws Exception 转换失败时抛出异常
      */
     public static String mapToString(Map<String, Object> targetMap, String targetType, boolean prettyPrint) throws Exception {
+        return mapToString(targetMap, targetType, prettyPrint, null);
+    }
+    
+    /**
+     * 将Map转换为目标格式字符串
+     * 
+     * @param targetMap 目标Map
+     * @param targetType 目标类型："JSON" 或 "XML"
+     * @param prettyPrint 是否格式化输出
+     * @param xmlRootElementName XML根元素名称（当targetType为XML时，如果指定则使用此名称包装Map）
+     * @return 格式化后的字符串
+     * @throws Exception 转换失败时抛出异常
+     */
+    public static String mapToString(Map<String, Object> targetMap, String targetType, boolean prettyPrint, String xmlRootElementName) throws Exception {
+        return mapToString(targetMap, targetType, prettyPrint, xmlRootElementName, false);
+    }
+    
+    /**
+     * 将Map转换为目标格式字符串
+     * 
+     * @param targetMap 目标Map
+     * @param targetType 目标类型："JSON" 或 "XML"
+     * @param prettyPrint 是否格式化输出
+     * @param xmlRootElementName XML根元素名称（当targetType为XML时，如果指定则使用此名称包装Map）
+     * @param includeXmlDeclaration 是否包含XML声明
+     * @return 格式化后的字符串
+     * @throws Exception 转换失败时抛出异常
+     */
+    public static String mapToString(Map<String, Object> targetMap, String targetType, boolean prettyPrint, String xmlRootElementName, boolean includeXmlDeclaration) throws Exception {
         if (targetMap == null) {
             throw new IllegalArgumentException("目标Map不能为空");
         }
@@ -71,10 +102,29 @@ public class MessageConverterUtil {
         try {
             switch (type) {
                 case "XML":
-                    if (prettyPrint) {
-                        return xmlMapper.writerWithDefaultPrettyPrinter().writeValueAsString(targetMap);
+                    String rootName = (xmlRootElementName != null && !xmlRootElementName.trim().isEmpty())
+                            ? xmlRootElementName.trim() : null;
+
+                    ObjectWriter writer;
+                    if (rootName != null) {
+                        // 关键点：告诉 Jackson 直接使用这个名字作为根，而不是 <HashMap>
+                        writer = xmlMapper.writer().withRootName(rootName);
+                    } else {
+                        writer = xmlMapper.writer();
                     }
-                    return xmlMapper.writeValueAsString(targetMap);
+
+                    if (prettyPrint) {
+                        writer = writer.withDefaultPrettyPrinter();
+                    }
+
+                    // 直接序列化原始 targetMap，Jackson 会自动处理根节点
+                    String xmlString = writer.writeValueAsString(targetMap);
+
+                    // 处理 XML 声明
+                    if (includeXmlDeclaration && !xmlString.trim().startsWith("<?xml")) {
+                        xmlString = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" + xmlString;
+                    }
+                    return xmlString;
                 case "JSON":
                 default:
                     if (prettyPrint) {

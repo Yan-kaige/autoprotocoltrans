@@ -62,10 +62,26 @@
         <div class="preview-panel">
           <h3>转换预览</h3>
           <div style="margin-bottom: 10px;">
-            <el-select v-model="targetProtocol" style="width: 100%;">
+            <el-select v-model="targetProtocol" style="width: 100%; margin-bottom: 10px;">
               <el-option label="JSON" value="JSON" />
               <el-option label="XML" value="XML" />
             </el-select>
+            <el-input
+                v-if="targetProtocol === 'XML'"
+                v-model="xmlRootElementName"
+                placeholder="请输入XML根元素名称（必填）"
+                style="width: 100%; margin-bottom: 10px;"
+            />
+            <el-checkbox
+                v-if="targetProtocol === 'XML'"
+                v-model="includeXmlDeclaration"
+                style="margin-top: 5px;"
+            >
+                包含XML声明
+            </el-checkbox>
+            <div v-if="targetProtocol === 'XML'" style="font-size: 12px; color: #999; margin-top: 5px;">
+              （&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;）
+            </div>
           </div>
           <el-button
               type="primary"
@@ -224,6 +240,8 @@ const sourceJson = ref('')
 const sourceTreeData = ref([])
 const sourceProtocol = ref('JSON') // 源协议类型：JSON 或 XML
 const targetProtocol = ref('JSON') // 目标协议类型：JSON 或 XML
+const xmlRootElementName = ref('') // XML根元素名称
+const includeXmlDeclaration = ref(false) // 是否包含XML声明
 const graphContainer = ref(null)
 let graph = null
 let nodeCounter = 0
@@ -786,6 +804,13 @@ const saveEdgeConfig = () => {
 
 const updatePreview = async () => {
   if (!sourceJson.value || previewing.value) return
+  
+  // 如果目标协议是XML，检查是否输入了根元素名称
+  if (targetProtocol.value === 'XML' && !xmlRootElementName.value?.trim()) {
+    previewError.value = '目标协议为XML时，请先输入XML根元素名称'
+    return
+  }
+  
   const config = exportMappingConfig()
   if (!config.rules.length) return
   previewing.value = true
@@ -898,12 +923,22 @@ const exportMappingConfig = () => {
     }
   })
   
-  return {
+  const config = {
     sourceProtocol: sourceProtocol.value,
     targetProtocol: targetProtocol.value,
     prettyPrint: true,
     rules: rules
   }
+  
+  // 如果目标协议是XML，添加根元素名称和XML声明选项
+  if (targetProtocol.value === 'XML') {
+    if (xmlRootElementName.value) {
+      config.xmlRootElementName = xmlRootElementName.value.trim()
+    }
+    config.includeXmlDeclaration = includeXmlDeclaration.value
+  }
+  
+  return config
 }
 
 const exportConfig = () => {
