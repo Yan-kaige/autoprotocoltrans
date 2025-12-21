@@ -28,6 +28,7 @@
             :data="sourceTreeData"
             :props="treeProps"
             node-key="path"
+            :default-expand-all="true"
             class="data-tree"
           >
             <template #default="{ node, data }">
@@ -196,7 +197,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, watch, onUnmounted } from 'vue'
+import { ref, onMounted, nextTick, watch, watchEffect, onUnmounted } from 'vue'
 import { Graph } from '@antv/x6'
 import { ElMessage } from 'element-plus'
 import { Document, Delete } from '@element-plus/icons-vue'
@@ -204,6 +205,7 @@ import { transformV2Api } from '../api'
 
 const sourceJson = ref('')
 const sourceTreeData = ref([])
+const sourceTreeRef = ref(null)
 const graphContainer = ref(null)
 let graph = null
 let selectedCellsSet = new Set() // 跟踪选中的单元格
@@ -433,7 +435,7 @@ const initGraph = () => {
     }
   })
   
-  // 监听连线点击事件（手动选中边并打开配置）
+  // 监听连线单击事件（只选中边，不打开配置）
   graph.on('edge:click', ({ edge, e }) => {
     e.stopPropagation()
     // 切换选中状态
@@ -447,6 +449,16 @@ const initGraph = () => {
       selectedCellsSet.add(edge)
       addSelectedStyle(edge)
       console.log('边选中:', edge.id)
+    }
+  })
+  
+  // 监听连线双击事件（打开配置窗口）
+  graph.on('edge:dblclick', ({ edge, e }) => {
+    e.stopPropagation()
+    // 双击时选中并打开配置
+    if (!selectedCellsSet.has(edge)) {
+      selectedCellsSet.add(edge)
+      addSelectedStyle(edge)
     }
     openEdgeConfig(edge)
   })
@@ -614,10 +626,41 @@ const parseSourceTree = () => {
     }
     const data = JSON.parse(sourceJson.value)
     sourceTreeData.value = [convertToTreeData(data, 'source', '$')]
+    
+    // 默认展开所有节点（使用双重 nextTick 确保 DOM 完全更新）
+    nextTick(() => {
+      nextTick(() => {
+        if (sourceTreeRef.value && sourceTreeData.value.length > 0) {
+          try {
+            // 获取所有节点key
+            const allKeys = []
+            const getAllKeys = (nodes) => {
+              nodes.forEach(node => {
+                if (node.path) {
+                  allKeys.push(node.path)
+                }
+                if (node.children && node.children.length > 0) {
+                  getAllKeys(node.children)
+                }
+              })
+            }
+            getAllKeys(sourceTreeData.value)
+            
+            // 调用 setExpandedKeys 方法展开所有节点
+            if (allKeys.length > 0) {
+              sourceTreeRef.value.setExpandedKeys(allKeys)
+              console.log('已展开', allKeys.length, '个节点')
+            }
+          } catch (e) {
+            console.error('展开节点失败:', e)
+          }
+        }
+      })
+    })
   } catch (e) {
-    // JSON解析失败时不显示错误（用户可能还在输入中）
-    // 只有在真正需要时才显示错误，避免用户输入时频繁报错
+    // JSON解析失败时显示错误提示
     sourceTreeData.value = []
+    ElMessage.error('JSON格式错误: ' + (e.message || '请检查JSON格式是否正确'))
   }
 }
 
