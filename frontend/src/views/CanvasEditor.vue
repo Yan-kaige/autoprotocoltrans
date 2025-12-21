@@ -158,7 +158,11 @@
         <el-form-item v-if="currentEdgeConfig.mappingType === 'ONE_TO_MANY'" label="子映射配置">
           <div class="sub-mapping-config">
             <div v-for="(sub, index) in subMappings" :key="index" class="sub-mapping-item">
-              <el-input v-model="sub.sourcePath" placeholder="源路径（相对于源对象，如 province）" style="width: 45%" />
+              <el-input 
+                v-model="sub.sourcePath" 
+                :placeholder="currentEdgeConfig.transformType === 'GROOVY' ? 'Map的key（如 province）或留空使用索引' : '源路径（相对于源对象，如 province）'" 
+                style="width: 45%" 
+              />
               <span style="margin: 0 10px">-></span>
               <el-input v-model="sub.targetPath" placeholder="目标路径（如 address.province）" style="width: 45%" />
               <el-button link type="danger" @click="removeSubMapping(index)">
@@ -167,9 +171,22 @@
             </div>
             <el-button @click="addSubMapping" style="margin-top: 10px">添加子映射</el-button>
             <div style="font-size: 12px; color: #999; margin-top: 5px;">
-              <div><strong>说明：</strong>一对多映射将源对象中的多个子字段映射到目标的不同路径</div>
-              <div><strong>源路径填写：</strong>相对于源对象的路径，例如如果源路径是 <code>$.user.address</code>，子映射源路径填写 <code>province</code> 即可（不需要 <code>$.</code> 前缀）</div>
-              <div>例如：源对象 <code>{"province": "北京", "city": "北京市"}</code>，子映射源路径填写 <code>province</code>，目标路径填写 <code>address.province</code></div>
+              <div v-if="currentEdgeConfig.transformType === 'GROOVY'">
+                <div><strong>字符串拆分模式：</strong>使用Groovy脚本将字符串拆分成Map，然后映射到多个目标字段</div>
+                <div><strong>Groovy脚本示例（拆分"省-市-县"）：</strong></div>
+                <div style="background: #f5f5f5; padding: 8px; border-radius: 4px; margin: 5px 0;">
+                  <code>def parts = input?.toString()?.split('-') ?: []; return [province: parts[0] ?: '', city: parts[1] ?: '', district: parts[2] ?: '']</code>
+                </div>
+                <div><strong>子映射配置：</strong></div>
+                <div>• 源路径填写 <code>province</code> → 目标路径填写 <code>address.province</code></div>
+                <div>• 源路径填写 <code>city</code> → 目标路径填写 <code>address.city</code></div>
+                <div>• 源路径填写 <code>district</code> → 目标路径填写 <code>address.district</code></div>
+              </div>
+              <div v-else>
+                <div><strong>对象拆分模式：</strong>将源对象中的多个子字段映射到目标的不同路径</div>
+                <div><strong>源路径填写：</strong>相对于源对象的路径，例如如果源路径是 <code>$.user.address</code>，子映射源路径填写 <code>province</code> 即可（不需要 <code>$.</code> 前缀）</div>
+                <div>例如：源对象 <code>{"province": "北京", "city": "北京市"}</code>，子映射源路径填写 <code>province</code>，目标路径填写 <code>address.province</code></div>
+              </div>
             </div>
           </div>
         </el-form-item>
@@ -550,7 +567,15 @@ const saveEdgeConfig = () => {
       }
     })
     config.dictionary = dict
-  } else if (currentEdgeConfig.value.mappingType === 'ONE_TO_MANY') {
+  } else if (currentEdgeConfig.value.transformType === 'FIXED') {
+    // 固定值：确保fixedValue字段存在
+    if (config.fixedValue === undefined) {
+      config.fixedValue = ''
+    }
+  }
+  
+  // 一对多映射：保存子映射配置（可以与其他转换类型组合使用，如GROOVY+ONE_TO_MANY）
+  if (currentEdgeConfig.value.mappingType === 'ONE_TO_MANY') {
     // 一对多映射：保存子映射配置
     // 子映射的源路径是相对于源对象的路径，不需要$前缀
     const subMaps = subMappings.value
@@ -562,10 +587,20 @@ const saveEdgeConfig = () => {
     if (subMaps.length > 0) {
       config.subMappings = subMaps
     }
-  } else if (currentEdgeConfig.value.transformType === 'FIXED') {
-    // 固定值：确保fixedValue字段存在
-    if (config.fixedValue === undefined) {
-      config.fixedValue = ''
+  }
+  
+  // 一对多映射：保存子映射配置（可以与其他转换类型组合使用，如GROOVY+ONE_TO_MANY）
+  if (currentEdgeConfig.value.mappingType === 'ONE_TO_MANY') {
+    // 一对多映射：保存子映射配置
+    // 子映射的源路径是相对于源对象的路径，不需要$前缀
+    const subMaps = subMappings.value
+      .filter(item => item.sourcePath && item.targetPath)
+      .map(item => ({
+        sourcePath: item.sourcePath.replace(/^\$\./, ''), // 移除$前缀，使用相对路径
+        targetPath: item.targetPath
+      }))
+    if (subMaps.length > 0) {
+      config.subMappings = subMaps
     }
   }
   
@@ -659,7 +694,7 @@ const exportMappingConfig = () => {
         targetPath: targetPath,
         mappingType: edgeData.mappingType || 'ONE_TO_ONE',
         transformType: edgeData.transformType || 'DIRECT',
-        transformConfig: edgeData.transformConfig || {}
+        transformConfig: edgeData.transformConfig ? JSON.parse(JSON.stringify(edgeData.transformConfig)) : {}
       }
       rules.push(rule)
     } else {

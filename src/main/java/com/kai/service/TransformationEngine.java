@@ -149,6 +149,9 @@ public class TransformationEngine {
     
     /**
      * 1对多映射
+     * 支持两种模式：
+     * 1. 对象拆分：源值是Map对象，通过subMappings将对象的子字段映射到多个目标路径
+     * 2. 字符串拆分：源值是字符串，通过Groovy脚本拆分成Map，然后通过subMappings映射到多个目标路径
      */
     private void applyOneToManyMapping(Map<String, Object> sourceMap, MappingRule rule, Map<String, Object> targetMap) {
         // 读取源值
@@ -158,16 +161,58 @@ public class TransformationEngine {
         if (rule.getTransformConfig() != null && rule.getTransformConfig().containsKey("subMappings")) {
             @SuppressWarnings("unchecked")
             List<Map<String, String>> subMappings = (List<Map<String, String>>) rule.getTransformConfig().get("subMappings");
-            if (subMappings != null && sourceValue instanceof Map) {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> sourceObj = (Map<String, Object>) sourceValue;
-                for (Map<String, String> subMapping : subMappings) {
-                    String subSourcePath = subMapping.get("sourcePath");
-                    String subTargetPath = subMapping.get("targetPath");
-                    if (subSourcePath != null && subTargetPath != null) {
-                        Object subValue = PathUtil.getDeepValue(sourceObj, subSourcePath);
-                        if (subValue != null) {
-                            PathUtil.setDeepValue(targetMap, subTargetPath, subValue);
+            if (subMappings != null) {
+                Map<String, Object> splitResult = null;
+                
+                // 如果源值是Map对象，直接使用
+                if (sourceValue instanceof Map) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> sourceObj = (Map<String, Object>) sourceValue;
+                    splitResult = sourceObj;
+                } 
+                // 如果源值是字符串，且使用了Groovy脚本，执行脚本拆分
+                else if (sourceValue instanceof String && rule.getTransformType() == TransformType.GROOVY) {
+                    // 执行Groovy脚本，期望返回一个Map
+                    Object transformedValue = executeTransform(sourceValue, rule);
+                    if (transformedValue instanceof Map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> groovyResult = (Map<String, Object>) transformedValue;
+                        splitResult = groovyResult;
+                    }
+                }
+                
+                // 根据子映射配置，将拆分结果映射到目标路径
+                if (splitResult != null) {
+                    for (Map<String, String> subMapping : subMappings) {
+                        String subSourcePath = subMapping.get("sourcePath");
+                        String subTargetPath = subMapping.get("targetPath");
+                        if (subSourcePath != null && subTargetPath != null) {
+                            // 如果subSourcePath为空，表示使用索引（用于数组拆分）
+                            if (subSourcePath.isEmpty()) {
+                                // 如果splitResult是List，使用索引访问
+                                if (splitResult instanceof java.util.List) {
+                                    @SuppressWarnings("unchecked")
+                                    java.util.List<Object> listResult = (java.util.List<Object>) splitResult;
+                                    // 尝试从targetPath中提取索引，或者使用subMapping中的index字段
+                                    String indexStr = subMapping.get("index");
+                                    if (indexStr != null) {
+                                        try {
+                                            int index = Integer.parseInt(indexStr);
+                                            if (index >= 0 && index < listResult.size()) {
+                                                PathUtil.setDeepValue(targetMap, subTargetPath, listResult.get(index));
+                                            }
+                                        } catch (NumberFormatException e) {
+                                            log.warn("无效的索引: {}", indexStr);
+                                        }
+                                    }
+                                }
+                            } else {
+                                // 使用路径访问Map中的值
+                                Object subValue = PathUtil.getDeepValue(splitResult, subSourcePath);
+                                if (subValue != null) {
+                                    PathUtil.setDeepValue(targetMap, subTargetPath, subValue);
+                                }
+                            }
                         }
                     }
                 }
