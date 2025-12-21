@@ -95,7 +95,7 @@
         <el-form-item label="源路径"><el-input v-model="currentEdgeConfig.sourcePath" disabled /></el-form-item>
         <el-form-item label="目标路径"><el-input v-model="currentEdgeConfig.targetPath" disabled /></el-form-item>
         <el-form-item label="映射类型">
-          <el-select v-model="currentEdgeConfig.mappingType">
+          <el-select v-model="currentEdgeConfig.mappingType" @change="onMappingTypeChange">
             <el-option label="1对1" value="ONE_TO_ONE" />
             <el-option label="1对多" value="ONE_TO_MANY" />
             <el-option label="多对1" value="MANY_TO_ONE" />
@@ -153,6 +153,26 @@
         <el-form-item v-if="currentEdgeConfig.transformType === 'FIXED'" label="固定值">
           <el-input v-model="currentEdgeConfig.transformConfig.fixedValue" placeholder="请输入固定值" />
         </el-form-item>
+        
+        <!-- 一对多映射的子映射配置 -->
+        <el-form-item v-if="currentEdgeConfig.mappingType === 'ONE_TO_MANY'" label="子映射配置">
+          <div class="sub-mapping-config">
+            <div v-for="(sub, index) in subMappings" :key="index" class="sub-mapping-item">
+              <el-input v-model="sub.sourcePath" placeholder="源路径（相对于源对象，如 province）" style="width: 45%" />
+              <span style="margin: 0 10px">-></span>
+              <el-input v-model="sub.targetPath" placeholder="目标路径（如 address.province）" style="width: 45%" />
+              <el-button link type="danger" @click="removeSubMapping(index)">
+                <el-icon><Delete /></el-icon>
+              </el-button>
+            </div>
+            <el-button @click="addSubMapping" style="margin-top: 10px">添加子映射</el-button>
+            <div style="font-size: 12px; color: #999; margin-top: 5px;">
+              <div><strong>说明：</strong>一对多映射将源对象中的多个子字段映射到目标的不同路径</div>
+              <div><strong>源路径填写：</strong>相对于源对象的路径，例如如果源路径是 <code>$.user.address</code>，子映射源路径填写 <code>province</code> 即可（不需要 <code>$.</code> 前缀）</div>
+              <div>例如：源对象 <code>{"province": "北京", "city": "北京市"}</code>，子映射源路径填写 <code>province</code>，目标路径填写 <code>address.province</code></div>
+            </div>
+          </div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="edgeConfigVisible = false">取消</el-button>
@@ -197,6 +217,7 @@ const currentEdgeConfig = ref({
 })
 const dictKeys = ref([])
 const dictValues = ref([])
+const subMappings = ref([]) // 一对多映射的子映射列表
 
 onMounted(() => {
   nextTick(() => initGraph())
@@ -438,6 +459,24 @@ const openEdgeConfig = (edge) => {
     dictValues.value = []
   }
   
+  // 初始化一对多映射的子映射配置
+  if (currentEdgeConfig.value.mappingType === 'ONE_TO_MANY') {
+    const subMaps = currentEdgeConfig.value.transformConfig?.subMappings || []
+    if (Array.isArray(subMaps)) {
+      subMappings.value = subMaps.map(item => ({
+        sourcePath: item.sourcePath || '',
+        targetPath: item.targetPath || ''
+      }))
+      if (subMappings.value.length === 0) {
+        subMappings.value = [{ sourcePath: '', targetPath: '' }]
+      }
+    } else {
+      subMappings.value = [{ sourcePath: '', targetPath: '' }]
+    }
+  } else {
+    subMappings.value = []
+  }
+  
   edgeConfigVisible.value = true
 }
 
@@ -453,6 +492,28 @@ const onTransformTypeChange = () => {
     dictKeys.value = []
     dictValues.value = []
   }
+}
+
+const onMappingTypeChange = () => {
+  // 切换映射类型时，初始化相应的配置
+  if (currentEdgeConfig.value.mappingType === 'ONE_TO_MANY') {
+    // 一对多映射：初始化子映射列表
+    if (subMappings.value.length === 0) {
+      subMappings.value = [{ sourcePath: '', targetPath: '' }]
+    }
+  } else {
+    // 其他映射类型：清空子映射
+    subMappings.value = []
+  }
+}
+
+// 一对多映射的子映射管理
+const addSubMapping = () => {
+  subMappings.value.push({ sourcePath: '', targetPath: '' })
+}
+
+const removeSubMapping = (index) => {
+  subMappings.value.splice(index, 1)
 }
 const addDictItem = () => { 
   dictKeys.value.push('')
@@ -489,6 +550,18 @@ const saveEdgeConfig = () => {
       }
     })
     config.dictionary = dict
+  } else if (currentEdgeConfig.value.mappingType === 'ONE_TO_MANY') {
+    // 一对多映射：保存子映射配置
+    // 子映射的源路径是相对于源对象的路径，不需要$前缀
+    const subMaps = subMappings.value
+      .filter(item => item.sourcePath && item.targetPath)
+      .map(item => ({
+        sourcePath: item.sourcePath.replace(/^\$\./, ''), // 移除$前缀，使用相对路径
+        targetPath: item.targetPath
+      }))
+    if (subMaps.length > 0) {
+      config.subMappings = subMaps
+    }
   } else if (currentEdgeConfig.value.transformType === 'FIXED') {
     // 固定值：确保fixedValue字段存在
     if (config.fixedValue === undefined) {
