@@ -691,13 +691,22 @@ const handleCanvasDrop = (event) => {
 const addNodePair = () => {
   if (!graph || !graphContainer.value) return
   
-  // 获取画布中心位置
-  const rect = graphContainer.value.getBoundingClientRect()
-  const centerX = rect.width / 2
-  const centerY = rect.height / 2
+  // 智能排版算法：每 10 个换一列
+  const ROW_HEIGHT = 60
+  const COLUMN_WIDTH = 450
+  const row = autoLayoutCount % 10
+  const col = Math.floor(autoLayoutCount / 10)
+  
+  // 基础起始点：x=250 (留出源节点空间), y=50
+  // 这里使用目标节点的X坐标作为中心点（源节点在左侧200px，目标节点在右侧50px）
+  const targetX = 250 + (col * COLUMN_WIDTH)
+  const targetY = 50 + (row * ROW_HEIGHT)
   
   // 使用默认字段名创建节点对
-  createNodePair(centerX, centerY, `field_${nodeCounter + 1}`, null)
+  createNodePair(targetX, targetY, `field_${nodeCounter + 1}`, null)
+  
+  // 计数器加1，确保下次不重叠
+  autoLayoutCount++
   
   ElMessage.success('已添加新节点，可以双击节点进行编辑')
 }
@@ -1141,6 +1150,7 @@ const loadConfigToCanvas = async (configId) => {
       graph.clearCells()
     }
     nodeCounter = 0
+    autoLayoutCount = 0 // 重置布局计数器
     
     // 重建节点和边
     await nextTick()
@@ -1323,6 +1333,9 @@ const loadRulesToCanvas = async (rules) => {
       }
     }
   })
+  
+  // 更新布局计数器，确保后续手动添加节点时从正确位置继续
+  autoLayoutCount = currentRow
 }
 </script>
 
