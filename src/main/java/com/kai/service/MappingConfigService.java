@@ -25,9 +25,13 @@ public class MappingConfigService extends ServiceImpl<MappingConfigMapper, Mappi
     
     /**
      * 保存配置
+     * @param id 配置ID，如果为null则创建新配置，如果不为null则更新指定ID的配置
+     * @param name 配置名称
+     * @param description 配置描述
+     * @param config 映射配置
      */
     @Transactional
-    public MappingConfigEntity saveConfig(String name, String description, MappingConfig config) throws Exception {
+    public MappingConfigEntity saveConfig(Long id, String name, String description, MappingConfig config) throws Exception {
         if (name == null || name.trim().isEmpty()) {
             throw new IllegalArgumentException("配置名称不能为空");
         }
@@ -37,20 +41,41 @@ public class MappingConfigService extends ServiceImpl<MappingConfigMapper, Mappi
         // 将MappingConfig转为JSON字符串
         String configContent = objectMapper.writeValueAsString(config);
         
-        // 检查是否已存在同名配置
-        LambdaQueryWrapper<MappingConfigEntity> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(MappingConfigEntity::getName, name);
-        MappingConfigEntity existingEntity = this.getOne(wrapper);
-        
         MappingConfigEntity entity;
-        if (existingEntity != null) {
-            // 更新现有配置
-            entity = existingEntity;
+        
+        if (id != null) {
+            // 更新模式：根据ID获取现有配置
+            entity = this.getById(id);
+            if (entity == null) {
+                throw new IllegalArgumentException("配置不存在，ID: " + id);
+            }
+            
+            // 如果名称改变了，检查新名称是否已被其他配置使用
+            if (!name.equals(entity.getName())) {
+                LambdaQueryWrapper<MappingConfigEntity> nameWrapper = new LambdaQueryWrapper<>();
+                nameWrapper.eq(MappingConfigEntity::getName, name);
+                MappingConfigEntity existingByName = this.getOne(nameWrapper);
+                if (existingByName != null && !existingByName.getId().equals(id)) {
+                    throw new IllegalArgumentException("配置名称已存在: " + name);
+                }
+            }
+            
+            // 更新配置
+            entity.setName(name);
             entity.setDescription(description);
             entity.setConfigContent(configContent);
             entity.setUpdateTime(LocalDateTime.now());
             this.updateById(entity);
         } else {
+            // 新建模式：检查是否已存在同名配置
+            LambdaQueryWrapper<MappingConfigEntity> wrapper = new LambdaQueryWrapper<>();
+            wrapper.eq(MappingConfigEntity::getName, name);
+            MappingConfigEntity existingEntity = this.getOne(wrapper);
+            
+            if (existingEntity != null) {
+                throw new IllegalArgumentException("配置名称已存在: " + name);
+            }
+            
             // 创建新配置
             entity = new MappingConfigEntity();
             entity.setName(name);

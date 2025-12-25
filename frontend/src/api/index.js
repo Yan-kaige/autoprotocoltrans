@@ -66,8 +66,9 @@ export const configApi = {
   getConfigByName: (name) => api.get(`/v2/config/name/${name}`),
   
   // 保存配置
-  saveConfig: (name, description, mappingConfig) =>
+  saveConfig: (id, name, description, mappingConfig) =>
     api.post('/v2/config/save', {
+      id: id || null, // 如果为null则表示新建
       name,
       description,
       mappingConfig

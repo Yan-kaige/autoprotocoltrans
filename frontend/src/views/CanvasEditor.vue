@@ -5,7 +5,7 @@
         <div class="card-header">
           <span>报文映射画布编辑器</span>
           <div>
-            <el-button @click="openSaveConfigDialog">保存配置</el-button>
+            <el-button @click="openSaveConfigDialog">{{ currentConfigId ? '修改配置' : '保存配置' }}</el-button>
           </div>
         </div>
       </template>
@@ -231,8 +231,8 @@
       </template>
     </el-dialog>
 
-    <!-- 保存配置对话框 -->
-    <el-dialog v-model="saveConfigVisible" title="保存配置" width="500px">
+    <!-- 保存/修改配置对话框 -->
+    <el-dialog v-model="saveConfigVisible" :title="currentConfigId ? '修改配置' : '保存配置'" width="500px">
       <el-form :model="saveConfigForm" label-width="100px">
         <el-form-item label="配置名称" required>
           <el-input v-model="saveConfigForm.name" placeholder="请输入配置名称" />
@@ -248,7 +248,7 @@
       </el-form>
       <template #footer>
         <el-button @click="saveConfigVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveConfig" :loading="saving">保存</el-button>
+        <el-button type="primary" @click="saveConfig" :loading="saving">{{ currentConfigId ? '修改' : '保存' }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -309,6 +309,7 @@ const saveConfigForm = ref({
 const route = useRoute()
 const router = useRouter()
 const currentConfigId = ref(null) // 当前编辑的配置ID
+const currentConfigEntity = ref(null) // 当前编辑的配置实体（包含名称和描述）
 
 onMounted(() => {
   nextTick(() => {
@@ -1060,8 +1061,17 @@ const openSaveConfigDialog = () => {
     ElMessage.warning('请先配置映射规则')
     return
   }
-  saveConfigForm.value.name = ''
-  saveConfigForm.value.description = ''
+  
+  // 如果是编辑模式，填充原有的名称和描述
+  if (currentConfigId.value && currentConfigEntity.value) {
+    saveConfigForm.value.name = currentConfigEntity.value.name || ''
+    saveConfigForm.value.description = currentConfigEntity.value.description || ''
+  } else {
+    // 新建模式，清空表单
+    saveConfigForm.value.name = ''
+    saveConfigForm.value.description = ''
+  }
+  
   saveConfigVisible.value = true
 }
 
@@ -1076,15 +1086,18 @@ const saveConfig = async () => {
   try {
     const config = exportMappingConfig()
     const res = await configApi.saveConfig(
+      currentConfigId.value || null, // 如果是编辑模式，传递配置ID
       saveConfigForm.value.name.trim(),
       saveConfigForm.value.description?.trim() || '',
       config
     )
     
     if (res.data.success) {
-      ElMessage.success('配置保存成功')
+      ElMessage.success(currentConfigId.value ? '配置修改成功' : '配置保存成功')
       saveConfigVisible.value = false
       currentConfigId.value = res.data.data.id
+      // 更新配置实体信息
+      currentConfigEntity.value = res.data.data
       // 更新URL，添加configId参数
       router.replace({ query: { configId: res.data.data.id } })
     } else {
@@ -1108,6 +1121,9 @@ const loadConfigToCanvas = async (configId) => {
     }
     
     const entity = res.data.data
+    // 保存配置实体，用于编辑时填充表单
+    currentConfigEntity.value = entity
+    
     const config = JSON.parse(entity.configContent)
     
     // 设置协议类型

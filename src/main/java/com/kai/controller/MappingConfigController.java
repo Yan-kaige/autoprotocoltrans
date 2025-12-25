@@ -81,13 +81,14 @@ public class MappingConfigController {
         Map<String, Object> result = new HashMap<>();
         try {
             MappingConfigEntity entity = configService.saveConfig(
+                request.getId(), // 传递ID，如果为null则表示新建
                 request.getName(),
                 request.getDescription(),
                 request.getMappingConfig()
             );
             result.put("success", true);
             result.put("data", entity);
-            result.put("message", "配置保存成功");
+            result.put("message", request.getId() != null ? "配置修改成功" : "配置保存成功");
         } catch (Exception e) {
             result.put("success", false);
             result.put("errorMessage", e.getMessage());
@@ -130,6 +131,7 @@ public class MappingConfigController {
     @lombok.NoArgsConstructor
     @lombok.AllArgsConstructor
     public static class SaveConfigRequest {
+        private Long id; // 配置ID，如果为null则表示新建，如果不为null则表示更新
         private String name;
         private String description;
         private MappingConfig mappingConfig;
