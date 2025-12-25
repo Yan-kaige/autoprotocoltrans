@@ -33,8 +33,34 @@ export const ruleApi = {
 
 // 函数API
 export const functionApi = {
-  // 获取所有可用函数
-  getAvailableFunctions: () => api.get('/functions')
+  // 获取所有可用函数（包括系统函数和自定义函数）
+  getAvailableFunctions: () => api.get('/functions'),
+  
+  // 获取所有自定义函数列表
+  getAllFunctions: () => api.get('/v2/function/list'),
+  
+  // 根据ID获取函数
+  getFunction: (id) => api.get(`/v2/function/${id}`),
+  
+  // 保存函数（新增或更新）
+  saveFunction: (id, name, code, description, script, enabled) =>
+    api.post('/v2/function/save', {
+      id: id || null,
+      name,
+      code,
+      description,
+      script,
+      enabled
+    }),
+  
+  // 删除函数
+  deleteFunction: (id) => api.delete(`/v2/function/${id}`),
+  
+  // 检查编码是否存在
+  checkCodeExists: (code, excludeId) => 
+    api.get('/v2/function/check-code', {
+      params: { code, excludeId }
+    })
 }
 
 // V2版本转换API

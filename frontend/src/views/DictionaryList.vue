@@ -6,6 +6,7 @@
           <span>字典管理</span>
           <div>
             <el-button @click="goToConfig" style="margin-right: 10px">配置管理</el-button>
+            <el-button @click="goToFunction" style="margin-right: 10px">函数管理</el-button>
             <el-button type="primary" @click="openDictionaryDialog">新建字典</el-button>
           </div>
         </div>
@@ -237,6 +238,10 @@ const saveDictionary = async () => {
 
 const goToConfig = () => {
   router.push({ path: '/config' })
+}
+
+const goToFunction = () => {
+  router.push({ path: '/function' })
 }
 
 const deleteDictionary = async (id) => {

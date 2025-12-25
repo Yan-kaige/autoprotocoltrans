@@ -22,7 +22,7 @@ public class FunctionController {
     private TransformFunctionService functionService;
     
     /**
-     * 获取所有可用函数
+     * 获取所有可用函数（包括系统函数和自定义函数）
      */
     @GetMapping
     public ResponseEntity<Map<String, String>> getAvailableFunctions() {

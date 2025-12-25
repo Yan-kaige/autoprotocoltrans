@@ -6,6 +6,7 @@
           <span>配置管理</span>
           <div>
             <el-button @click="goToDictionary" style="margin-right: 10px">字典管理</el-button>
+            <el-button @click="goToFunction" style="margin-right: 10px">函数管理</el-button>
             <el-button type="primary" @click="goToEditor">新建配置</el-button>
           </div>
         </div>
@@ -87,6 +88,10 @@ const goToEditor = () => {
 
 const goToDictionary = () => {
   router.push({ path: '/dictionary' })
+}
+
+const goToFunction = () => {
+  router.push({ path: '/function' })
 }
 
 const editConfig = (configId) => {

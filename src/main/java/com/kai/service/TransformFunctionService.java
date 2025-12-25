@@ -1,10 +1,13 @@
 package com.kai.service;
 
+import com.kai.model.CustomFunction;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 
@@ -16,6 +19,9 @@ import java.util.function.Function;
 public class TransformFunctionService {
     
     private final Map<String, Function<Object, Object>> functions = new HashMap<>();
+    
+    @Autowired(required = false)
+    private CustomFunctionService customFunctionService;
     
     public TransformFunctionService() {
         initDefaultFunctions();
@@ -100,18 +106,37 @@ public class TransformFunctionService {
     }
     
     /**
-     * 获取所有可用函数
+     * 获取所有可用函数（包括系统函数和自定义函数）
      */
     public Map<String, String> getAvailableFunctions() {
         Map<String, String> result = new HashMap<>();
-        result.put("upperCase", "转大写");
-        result.put("lowerCase", "转小写");
-        result.put("trim", "去除空格");
-        result.put("currentDate", "当前日期时间");
-        result.put("length", "字符串长度");
-        result.put("toInt", "转整数");
-        result.put("toString", "转字符串");
-        result.put("toDouble", "转浮点数");
+        
+        // 系统预置函数
+        result.put("upperCase", "转大写（系统）");
+        result.put("lowerCase", "转小写（系统）");
+        result.put("trim", "去除空格（系统）");
+        result.put("currentDate", "当前日期时间（系统）");
+        result.put("length", "字符串长度（系统）");
+        result.put("toInt", "转整数（系统）");
+        result.put("toString", "转字符串（系统）");
+        result.put("toDouble", "转浮点数（系统）");
+        
+        // 自定义函数
+        if (customFunctionService != null) {
+            try {
+                List<CustomFunction> customFunctions = customFunctionService.getEnabledFunctions();
+                for (CustomFunction func : customFunctions) {
+                    String description = func.getDescription();
+                    if (description == null || description.trim().isEmpty()) {
+                        description = func.getName();
+                    }
+                    result.put(func.getCode(), description + "（自定义）");
+                }
+            } catch (Exception e) {
+                // 忽略错误，只返回系统函数
+            }
+        }
+        
         return result;
     }
 }

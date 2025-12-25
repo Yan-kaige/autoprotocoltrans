@@ -7,6 +7,7 @@
           <div>
             <el-button @click="goToConfig" style="margin-right: 10px">配置管理</el-button>
             <el-button @click="goToDictionary" style="margin-right: 10px">字典管理</el-button>
+            <el-button @click="goToFunction" style="margin-right: 10px">函数管理</el-button>
             <el-button @click="openSaveConfigDialog">{{ currentConfigId ? '修改配置' : '保存配置' }}</el-button>
           </div>
         </div>
@@ -149,11 +150,17 @@
         
         <!-- 函数映射配置 -->
         <el-form-item v-if="currentEdgeConfig.transformType === 'FUNCTION'" label="函数名称">
-          <el-select v-model="currentEdgeConfig.transformConfig.function">
-            <el-option label="转大写" value="upperCase" />
-            <el-option label="转小写" value="lowerCase" />
-            <el-option label="去除空格" value="trim" />
-            <el-option label="当前日期" value="currentDate" />
+          <el-select 
+            v-model="currentEdgeConfig.transformConfig.function" 
+            placeholder="请选择函数"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="(desc, code) in availableFunctions"
+              :key="code"
+              :label="desc"
+              :value="code"
+            />
           </el-select>
         </el-form-item>
         
@@ -163,7 +170,7 @@
             v-model="currentEdgeConfig.transformConfig.groovyScript"
             type="textarea"
             :rows="8"
-            placeholder="输入Groovy脚本代码&#10;&#10;示例1 - 去掉邮箱@后面的部分:&#10;input?.toString()?.split('@')?[0] ?: ''&#10;&#10;示例2 - 字符串拼接(多对1):&#10;def parts = input as List; return (parts[0] ?: '') + ' ' + (parts[1] ?: '')&#10;&#10;可用变量: input(输入值), inputs(List类型时的别名)"
+            placeholder="输入Groovy脚本代码&#10;&#10;示例1 - 去掉邮箱@后面的部分:&#10;input?.toString()?.split('@')?[0] ?: ''&#10;&#10;示例2 - 字符串拼接(多对1):&#10;def parts = input as List; return (parts[0] ?: '') + ' ' + (parts[1] ?: '')&#10;&#10;示例3 - 取前三位转为数字:&#10;String str = input?.toString() ?: ''; return Integer.parseInt(str.length() >= 3 ? str.substring(0, 3) : str)&#10;&#10;可用变量: input(输入值), inputs(List类型时的别名)"
           />
           <div style="font-size: 12px; color: #999; margin-top: 5px;">
             <div><strong>变量说明：</strong></div>
@@ -184,7 +191,7 @@
               v-for="dict in dictionaryList"
               :key="dict.id"
               :label="`${dict.name} (${dict.code})`"
-              :value="dict.id"
+              :value="Number(dict.id)"
             />
           </el-select>
         </el-form-item>
@@ -272,7 +279,7 @@ import { Graph } from '@antv/x6'
 import { Selection } from '@antv/x6-plugin-selection'
 import { ElMessage } from 'element-plus'
 import { Document, Delete, Plus } from '@element-plus/icons-vue'
-import { transformV2Api, configApi, dictionaryApi } from '../api'
+import { transformV2Api, configApi, dictionaryApi, functionApi } from '../api'
 import { useRoute, useRouter } from 'vue-router'
 
 // --- 状态变量 ---
@@ -308,6 +315,7 @@ const currentEdgeConfig = ref({
   dictionaryDirection: false // false: k->v, true: v->k
 })
 const dictionaryList = ref([])
+const availableFunctions = ref({}) // 可用函数列表（包括系统函数和自定义函数）
 const subMappings = ref([]) // 一对多映射的子映射列表
 
 // 保存配置相关
@@ -327,6 +335,9 @@ const currentConfigEntity = ref(null) // 当前编辑的配置实体（包含名
 onMounted(() => {
   nextTick(() => {
     initGraph()
+    // 加载字典列表和函数列表
+    loadDictionaryList()
+    loadAvailableFunctions()
     // 检查URL参数，如果是编辑模式则加载配置
     const configId = route.query.configId
     if (configId) {
@@ -400,9 +411,6 @@ const initGraph = () => {
   graph.on('edge:dblclick', ({ edge }) => {
     openEdgeConfig(edge)
   })
-  
-  // 加载字典列表
-  loadDictionaryList()
 
   // 监听各种操作自动刷新预览
   graph.on('edge:connected', () => nextTick(() => updatePreview()))
@@ -885,30 +893,31 @@ const openEdgeConfig = (edge) => {
   if (!s || !t) return
   currentEdge = edge
   const data = edge.getData() || {}
+  
+  // 初始化字典配置（从edge data中读取dictionaryId和dictionaryDirection）
+  let dictionaryId = null
+  let dictionaryDirection = false
+  
+  if (data.transformType === 'DICTIONARY') {
+    // 兼容旧版本：如果transformConfig中有dictionary，说明是旧配置
+    const oldDict = data.transformConfig?.dictionary
+    if (!oldDict) {
+      // 新配置：从edge data中读取
+      // 确保ID类型一致（可能是字符串或数字）
+      const id = data.dictionaryId
+      dictionaryId = id != null ? (typeof id === 'number' ? id : Number(id)) : null
+      dictionaryDirection = data.dictionaryDirection !== undefined ? data.dictionaryDirection : false
+    }
+  }
+  
   currentEdgeConfig.value = {
     sourcePath: s.getData().path,
     targetPath: t.getData().path,
     mappingType: data.mappingType || 'ONE_TO_ONE',
     transformType: data.transformType || 'DIRECT',
-    transformConfig: data.transformConfig || {}
-  }
-  
-  // 初始化字典配置（从edge data中读取dictionaryId和dictionaryDirection）
-  if (currentEdgeConfig.value.transformType === 'DICTIONARY') {
-    // 兼容旧版本：如果transformConfig中有dictionary，说明是旧配置
-    const oldDict = currentEdgeConfig.value.transformConfig?.dictionary
-    if (oldDict) {
-      // 旧配置，需要迁移（这里先设为null，提示用户重新选择）
-      currentEdgeConfig.value.dictionaryId = null
-      currentEdgeConfig.value.dictionaryDirection = false
-    } else {
-      // 新配置：从edge data中读取
-      currentEdgeConfig.value.dictionaryId = data.dictionaryId || null
-      currentEdgeConfig.value.dictionaryDirection = data.dictionaryDirection !== undefined ? data.dictionaryDirection : false
-    }
-  } else {
-    currentEdgeConfig.value.dictionaryId = null
-    currentEdgeConfig.value.dictionaryDirection = false
+    transformConfig: data.transformConfig || {},
+    dictionaryId: dictionaryId,
+    dictionaryDirection: dictionaryDirection
   }
   
   // 初始化一对多映射的子映射配置
@@ -984,6 +993,18 @@ const loadDictionaryList = async () => {
     }
   } catch (e) {
     console.error('加载字典列表失败:', e)
+  }
+}
+
+// 加载可用函数列表
+const loadAvailableFunctions = async () => {
+  try {
+    const res = await functionApi.getAvailableFunctions()
+    if (res.data) {
+      availableFunctions.value = res.data
+    }
+  } catch (e) {
+    console.error('加载函数列表失败:', e)
   }
 }
 
@@ -1243,6 +1264,10 @@ const goToConfig = () => {
 
 const goToDictionary = () => {
   router.push({ path: '/dictionary' })
+}
+
+const goToFunction = () => {
+  router.push({ path: '/function' })
 }
 
 // 打开保存配置对话框

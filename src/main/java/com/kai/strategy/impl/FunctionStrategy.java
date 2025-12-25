@@ -1,7 +1,12 @@
 package com.kai.strategy.impl;
 
+import com.kai.model.CustomFunction;
+import com.kai.service.CustomFunctionService;
 import com.kai.strategy.TransformStrategy;
+import groovy.lang.Binding;
+import groovy.lang.GroovyShell;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
@@ -12,13 +17,16 @@ import java.util.function.Function;
 
 /**
  * 函数映射策略
- * 使用预置的函数进行转换
+ * 使用预置的函数进行转换，支持自定义函数（通过Groovy脚本）
  */
 @Slf4j
 @Component
 public class FunctionStrategy implements TransformStrategy {
     
     private final Map<String, Function<Object, Object>> functions = new HashMap<>();
+    
+    @Autowired
+    private CustomFunctionService customFunctionService;
     
     public FunctionStrategy() {
         initDefaultFunctions();
@@ -92,18 +100,40 @@ public class FunctionStrategy implements TransformStrategy {
             return sourceValue;
         }
         
+        // 先尝试使用系统预置函数
         Function<Object, Object> function = functions.get(functionName);
-        if (function == null) {
-            log.warn("函数不存在: {}, 返回原值", functionName);
+        if (function != null) {
+            try {
+                return function.apply(sourceValue);
+            } catch (Exception e) {
+                log.error("函数执行失败: {}", e.getMessage(), e);
+                return sourceValue;
+            }
+        }
+        
+        // 如果不是系统函数，尝试从数据库加载自定义函数
+        try {
+            CustomFunction customFunction = customFunctionService.getByCode(functionName);
+            if (customFunction != null && customFunction.getEnabled() && customFunction.getScript() != null) {
+                // 使用Groovy执行自定义函数脚本
+                Binding binding = new Binding();
+                binding.setVariable("input", sourceValue);
+                
+                if (sourceValue instanceof java.util.List) {
+                    binding.setVariable("inputs", sourceValue);
+                }
+                
+                GroovyShell shell = new GroovyShell(binding);
+                Object result = shell.evaluate(customFunction.getScript());
+                return result;
+            }
+        } catch (Exception e) {
+            log.error("自定义函数执行失败: {}, 错误: {}", functionName, e.getMessage(), e);
             return sourceValue;
         }
         
-        try {
-            return function.apply(sourceValue);
-        } catch (Exception e) {
-            log.error("函数执行失败: {}", e.getMessage(), e);
-            return sourceValue;
-        }
+        log.warn("函数不存在: {}, 返回原值", functionName);
+        return sourceValue;
     }
     
     @Override
