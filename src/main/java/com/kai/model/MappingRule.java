@@ -50,9 +50,21 @@ public class MappingRule {
      * DIRECT: 无额外配置
      * FUNCTION: {"function": "upperCase"}
      * GROOVY: {"groovyScript": "return input.toUpperCase()"}
-     * DICTIONARY: {"dictionary": {"key1": "value1", "key2": "value2"}}
+     * DICTIONARY: 不再使用transformConfig，改用dictionaryId和dictionaryDirection
      * FIXED: {"fixedValue": "固定值"}
      */
     private Map<String, Object> transformConfig;
+    
+    /**
+     * 字典ID（当transformType为DICTIONARY时使用）
+     */
+    private Long dictionaryId;
+    
+    /**
+     * 字典转换方向（当transformType为DICTIONARY时使用）
+     * false: k->v (key转value，正向)
+     * true: v->k (value转key，反向)
+     */
+    private Boolean dictionaryDirection;
 }
 

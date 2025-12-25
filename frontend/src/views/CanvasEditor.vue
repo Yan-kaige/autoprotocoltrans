@@ -5,6 +5,8 @@
         <div class="card-header">
           <span>报文映射画布编辑器</span>
           <div>
+            <el-button @click="goToConfig" style="margin-right: 10px">配置管理</el-button>
+            <el-button @click="goToDictionary" style="margin-right: 10px">字典管理</el-button>
             <el-button @click="openSaveConfigDialog">{{ currentConfigId ? '修改配置' : '保存配置' }}</el-button>
           </div>
         </div>
@@ -171,16 +173,26 @@
         </el-form-item>
         
         <!-- 字典映射配置 -->
-        <el-form-item v-if="currentEdgeConfig.transformType === 'DICTIONARY'" label="字典映射">
-          <div class="dict-config">
-            <div v-for="(key, index) in dictKeys" :key="index" class="dict-item">
-              <el-input v-model="dictKeys[index]" placeholder="源值" style="width: 45%" />
-              <span style="margin: 0 10px">-></span>
-              <el-input v-model="dictValues[index]" placeholder="目标值" style="width: 45%" />
-              <el-button link type="danger" @click="removeDictItem(index)"><el-icon><Delete /></el-icon></el-button>
-            </div>
-            <el-button @click="addDictItem" style="margin-top: 10px">添加映射项</el-button>
-          </div>
+        <el-form-item v-if="currentEdgeConfig.transformType === 'DICTIONARY'" label="选择字典">
+          <el-select 
+            v-model="currentEdgeConfig.dictionaryId" 
+            placeholder="请选择字典"
+            style="width: 100%"
+            @change="onDictionaryChange"
+          >
+            <el-option
+              v-for="dict in dictionaryList"
+              :key="dict.id"
+              :label="`${dict.name} (${dict.code})`"
+              :value="dict.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="currentEdgeConfig.transformType === 'DICTIONARY' && currentEdgeConfig.dictionaryId" label="转换方向">
+          <el-radio-group v-model="currentEdgeConfig.dictionaryDirection">
+            <el-radio :label="false">键转值 (K->V)</el-radio>
+            <el-radio :label="true">值转键 (V->K)</el-radio>
+          </el-radio-group>
         </el-form-item>
         
         <!-- 固定值配置 -->
@@ -260,7 +272,7 @@ import { Graph } from '@antv/x6'
 import { Selection } from '@antv/x6-plugin-selection'
 import { ElMessage } from 'element-plus'
 import { Document, Delete, Plus } from '@element-plus/icons-vue'
-import { transformV2Api, configApi } from '../api'
+import { transformV2Api, configApi, dictionaryApi } from '../api'
 import { useRoute, useRouter } from 'vue-router'
 
 // --- 状态变量 ---
@@ -291,10 +303,11 @@ const currentEdgeConfig = ref({
   targetPath: '', 
   mappingType: 'ONE_TO_ONE',
   transformType: 'DIRECT', 
-  transformConfig: {} 
+  transformConfig: {},
+  dictionaryId: null,
+  dictionaryDirection: false // false: k->v, true: v->k
 })
-const dictKeys = ref([])
-const dictValues = ref([])
+const dictionaryList = ref([])
 const subMappings = ref([]) // 一对多映射的子映射列表
 
 // 保存配置相关
@@ -387,6 +400,9 @@ const initGraph = () => {
   graph.on('edge:dblclick', ({ edge }) => {
     openEdgeConfig(edge)
   })
+  
+  // 加载字典列表
+  loadDictionaryList()
 
   // 监听各种操作自动刷新预览
   graph.on('edge:connected', () => nextTick(() => updatePreview()))
@@ -877,18 +893,22 @@ const openEdgeConfig = (edge) => {
     transformConfig: data.transformConfig || {}
   }
   
-  // 初始化字典配置
+  // 初始化字典配置（从edge data中读取dictionaryId和dictionaryDirection）
   if (currentEdgeConfig.value.transformType === 'DICTIONARY') {
-    const dict = currentEdgeConfig.value.transformConfig?.dictionary || {}
-    dictKeys.value = Object.keys(dict)
-    dictValues.value = Object.values(dict)
-    if (dictKeys.value.length === 0) {
-      dictKeys.value = ['']
-      dictValues.value = ['']
+    // 兼容旧版本：如果transformConfig中有dictionary，说明是旧配置
+    const oldDict = currentEdgeConfig.value.transformConfig?.dictionary
+    if (oldDict) {
+      // 旧配置，需要迁移（这里先设为null，提示用户重新选择）
+      currentEdgeConfig.value.dictionaryId = null
+      currentEdgeConfig.value.dictionaryDirection = false
+    } else {
+      // 新配置：从edge data中读取
+      currentEdgeConfig.value.dictionaryId = data.dictionaryId || null
+      currentEdgeConfig.value.dictionaryDirection = data.dictionaryDirection !== undefined ? data.dictionaryDirection : false
     }
   } else {
-    dictKeys.value = []
-    dictValues.value = []
+    currentEdgeConfig.value.dictionaryId = null
+    currentEdgeConfig.value.dictionaryDirection = false
   }
   
   // 初始化一对多映射的子映射配置
@@ -917,13 +937,18 @@ const onTransformTypeChange = () => {
   // 切换转换类型时，清空旧的配置
   currentEdgeConfig.value.transformConfig = {}
   if (currentEdgeConfig.value.transformType === 'DICTIONARY') {
-    // 初始化一个空的映射项
-    dictKeys.value = ['']
-    dictValues.value = ['']
+    // 初始化字典配置
+    currentEdgeConfig.value.dictionaryId = null
+    currentEdgeConfig.value.dictionaryDirection = false
   } else {
-    dictKeys.value = []
-    dictValues.value = []
+    currentEdgeConfig.value.dictionaryId = null
+    currentEdgeConfig.value.dictionaryDirection = false
   }
+}
+
+const onDictionaryChange = () => {
+  // 字典变化时的处理（可以在这里做一些验证）
+  console.log('字典已选择:', currentEdgeConfig.value.dictionaryId)
 }
 
 const onMappingTypeChange = () => {
@@ -947,13 +972,19 @@ const addSubMapping = () => {
 const removeSubMapping = (index) => {
   subMappings.value.splice(index, 1)
 }
-const addDictItem = () => { 
-  dictKeys.value.push('')
-  dictValues.value.push('') 
-}
-const removeDictItem = (i) => { 
-  dictKeys.value.splice(i, 1)
-  dictValues.value.splice(i, 1) 
+
+// 加载字典列表
+const loadDictionaryList = async () => {
+  try {
+    const res = await dictionaryApi.getAllDictionaries()
+    if (res.data.success) {
+      dictionaryList.value = res.data.data || []
+    } else {
+      console.error('加载字典列表失败:', res.data.errorMessage)
+    }
+  } catch (e) {
+    console.error('加载字典列表失败:', e)
+  }
 }
 
 const saveEdgeConfig = () => {
@@ -974,14 +1005,13 @@ const saveEdgeConfig = () => {
       config.groovyScript = 'return input'
     }
   } else if (currentEdgeConfig.value.transformType === 'DICTIONARY') {
-    // 字典映射：保存字典键值对
-    const dict = {}
-    dictKeys.value.forEach((k, i) => { 
-      if (k && dictValues.value[i]) {
-        dict[k] = dictValues.value[i] 
-      }
-    })
-    config.dictionary = dict
+    // 字典映射：不再保存字典内容，只保存字典ID和方向到edge data
+    // 兼容旧版本：如果dictKeys/dictValues有值，说明是旧配置，这里不处理，让用户重新选择字典
+    // 新版本：使用dictionaryId和dictionaryDirection（在edge data中保存）
+    if (!currentEdgeConfig.value.dictionaryId) {
+      ElMessage.warning('请先选择字典')
+      return
+    }
   } else if (currentEdgeConfig.value.transformType === 'FIXED') {
     // 固定值：确保fixedValue字段存在
     if (config.fixedValue === undefined) {
@@ -1020,12 +1050,22 @@ const saveEdgeConfig = () => {
   }
   
   // 更新边的数据
-  currentEdge.setData({
+  const edgeData = {
     ...currentEdge.getData(),
     mappingType: currentEdgeConfig.value.mappingType,
     transformType: currentEdgeConfig.value.transformType,
     transformConfig: config
-  })
+  }
+  
+  // 如果是字典类型，添加字典ID和方向
+  if (currentEdgeConfig.value.transformType === 'DICTIONARY') {
+    edgeData.dictionaryId = currentEdgeConfig.value.dictionaryId
+    edgeData.dictionaryDirection = currentEdgeConfig.value.dictionaryDirection !== undefined 
+      ? currentEdgeConfig.value.dictionaryDirection 
+      : false
+  }
+  
+  currentEdge.setData(edgeData)
   
   // 更新边的标签显示
   currentEdge.setLabels([{
@@ -1132,6 +1172,15 @@ const exportMappingConfig = () => {
         transformType: edgeData.transformType || 'DIRECT',
         transformConfig: edgeData.transformConfig ? JSON.parse(JSON.stringify(edgeData.transformConfig)) : {}
       }
+      
+      // 如果是字典类型，添加字典ID和方向
+      if (edgeData.transformType === 'DICTIONARY') {
+        if (edgeData.dictionaryId) {
+          rule.dictionaryId = edgeData.dictionaryId
+          rule.dictionaryDirection = edgeData.dictionaryDirection !== undefined ? edgeData.dictionaryDirection : false
+        }
+      }
+      
       rules.push(rule)
     } else {
       // 多对一映射：多条边指向同一个目标节点
@@ -1185,6 +1234,15 @@ const exportMappingConfig = () => {
   }
   
   return config
+}
+
+// 导航函数
+const goToConfig = () => {
+  router.push({ path: '/config' })
+}
+
+const goToDictionary = () => {
+  router.push({ path: '/dictionary' })
 }
 
 // 打开保存配置对话框
@@ -1442,15 +1500,23 @@ const loadRulesToCanvas = async (rules) => {
         const targetNodeId = targetNodeMap.get(targetPathKey)
         
         if (sourceNodeId && targetNodeId) {
+          const edgeData = {
+            mappingType: rule.mappingType || 'ONE_TO_ONE',
+            transformType: rule.transformType || 'DIRECT',
+            transformConfig: rule.transformConfig || {}
+          }
+          
+          // 如果是字典类型，添加字典ID和方向
+          if (rule.transformType === 'DICTIONARY' && rule.dictionaryId) {
+            edgeData.dictionaryId = rule.dictionaryId
+            edgeData.dictionaryDirection = rule.dictionaryDirection !== undefined ? rule.dictionaryDirection : false
+          }
+          
           graph.addEdge({
             source: { cell: sourceNodeId, port: 'p1' },
             target: { cell: targetNodeId, port: 'p1' },
             attrs: { line: { stroke: '#8f8f8f', strokeWidth: 2 } },
-            data: {
-              mappingType: rule.mappingType || 'ONE_TO_ONE',
-              transformType: rule.transformType || 'DIRECT',
-              transformConfig: rule.transformConfig || {}
-            },
+            data: edgeData,
             labels: [{ attrs: { text: { text: rule.transformType || 'DIRECT', fontSize: 10 } } }]
           })
         }

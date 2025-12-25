@@ -301,6 +301,16 @@ public class TransformationEngine {
             config = new HashMap<>();
         }
         
+        // 对于字典类型，如果rule中有dictionaryId和dictionaryDirection，添加到config中
+        if (transformType == TransformType.DICTIONARY) {
+            if (rule.getDictionaryId() != null) {
+                config.put("dictionaryId", rule.getDictionaryId());
+                if (rule.getDictionaryDirection() != null) {
+                    config.put("dictionaryDirection", rule.getDictionaryDirection());
+                }
+            }
+        }
+        
         return strategy.transform(sourceValue, config);
     }
     

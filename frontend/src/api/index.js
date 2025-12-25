@@ -81,5 +81,33 @@ export const configApi = {
   checkNameExists: (name) => api.get(`/v2/config/check-name/${name}`)
 }
 
+// 字典管理API
+export const dictionaryApi = {
+  // 获取所有字典列表
+  getAllDictionaries: () => api.get('/v2/dictionary/list'),
+  
+  // 根据ID获取字典及其项
+  getDictionary: (id) => api.get(`/v2/dictionary/${id}`),
+  
+  // 保存字典（新增或更新）
+  saveDictionary: (id, name, code, description, items) =>
+    api.post('/v2/dictionary/save', {
+      id: id || null,
+      name,
+      code,
+      description,
+      items
+    }),
+  
+  // 删除字典
+  deleteDictionary: (id) => api.delete(`/v2/dictionary/${id}`),
+  
+  // 检查编码是否存在
+  checkCodeExists: (code, excludeId) => 
+    api.get('/v2/dictionary/check-code', {
+      params: { code, excludeId }
+    })
+}
+
 export default api
 
