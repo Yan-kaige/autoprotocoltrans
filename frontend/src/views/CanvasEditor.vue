@@ -27,7 +27,7 @@
               @input="parseSourceTree"
           />
           <el-divider />
-          <div class="tree-tip">拖拽或双击字段到画布</div>
+          <div class="tree-tip">拖拽或双击字段到画布（也可在画布上直接点击"添加节点"按钮）</div>
           <el-tree
               ref="sourceTreeRef"
               :data="sourceTreeData"
@@ -56,6 +56,12 @@
             @dragover.prevent
             @drop="handleCanvasDrop"
         >
+          <div class="canvas-toolbar">
+            <el-button type="primary" size="small" @click="addNodePair">
+              <el-icon><Plus /></el-icon>
+              添加节点
+            </el-button>
+          </div>
           <div ref="graphContainer" class="graph-container"></div>
         </div>
 
@@ -107,7 +113,7 @@
       </div>
     </el-card>
 
-    <el-dialog v-model="nodeEditVisible" title="编辑目标字段" width="500px">
+    <el-dialog v-model="nodeEditVisible" :title="currentNodeEditType === 'source' ? '编辑源字段' : '编辑目标字段'" width="500px">
       <el-form :model="currentNodeEdit" label-width="100px">
         <el-form-item label="字段名"><el-input v-model="currentNodeEdit.fieldName" /></el-form-item>
         <el-form-item label="字段路径"><el-input v-model="currentNodeEdit.path" /></el-form-item>
@@ -253,7 +259,7 @@ import { ref, onMounted, nextTick, onUnmounted } from 'vue'
 import { Graph } from '@antv/x6'
 import { Selection } from '@antv/x6-plugin-selection'
 import { ElMessage } from 'element-plus'
-import { Document, Delete } from '@element-plus/icons-vue'
+import { Document, Delete, Plus } from '@element-plus/icons-vue'
 import { transformV2Api, configApi } from '../api'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -279,6 +285,7 @@ const edgeConfigVisible = ref(false)
 const nodeEditVisible = ref(false)
 let currentNodeToEdit = null
 const currentNodeEdit = ref({ fieldName: '', path: '' })
+const currentNodeEditType = ref('') // 'source' 或 'target'
 const currentEdgeConfig = ref({ 
   sourcePath: '', 
   targetPath: '', 
@@ -369,7 +376,11 @@ const initGraph = () => {
   )
 
   graph.on('node:dblclick', ({ node }) => {
-    if (node.getData()?.type === 'target') openNodeEditDialog(node)
+    // 允许编辑源节点和目标节点
+    const nodeType = node.getData()?.type
+    if (nodeType === 'source' || nodeType === 'target') {
+      openNodeEditDialog(node)
+    }
   })
 
   graph.on('edge:dblclick', ({ edge }) => {
@@ -602,19 +613,33 @@ const handleTreeNodeDoubleClick = (data) => {
 /**
  * 画布放置逻辑：处理手动拖拽和双击生成的坐标
  */
-const handleCanvasDrop = (event) => {
-  if (!graph || !draggingData) return
-  const rect = graphContainer.value.getBoundingClientRect()
-  const x = event.clientX - rect.left
-  const y = event.clientY - rect.top
-
-  const fieldName = draggingData.label
-  const sId = `s_${++nodeCounter}`, tId = `t_${++nodeCounter}`
+/**
+ * 创建节点对（源节点和目标节点）
+ * @param {number} x - 中心X坐标
+ * @param {number} y - 中心Y坐标
+ * @param {string} fieldName - 字段名称
+ * @param {string} sourcePath - 源路径（可选，如果为空则使用fieldName）
+ */
+const createNodePair = (x, y, fieldName = 'newField', sourcePath = null) => {
+  if (!graph) return
+  
+  // 如果没有提供fieldName，使用默认值
+  if (!fieldName || fieldName.trim() === '') {
+    fieldName = `field_${nodeCounter + 1}`
+  }
+  
+  // 如果没有提供sourcePath，使用fieldName作为路径
+  if (!sourcePath) {
+    sourcePath = fieldName
+  }
+  
+  const sId = `s_${++nodeCounter}`
+  const tId = `t_${++nodeCounter}`
 
   // 1. 源节点
   graph.addNode({
     id: sId, x: x - 200, y: y - 25, width: 140, height: 40, label: fieldName,
-    data: { type: 'source', path: draggingData.path },
+    data: { type: 'source', path: sourcePath },
     ports: {
       groups: { right: { position: 'right', attrs: { circle: { r: 4, magnet: true, stroke: '#2196f3', fill: '#fff' } } } },
       items: [{ id: 'p1', group: 'right' }]
@@ -646,19 +671,63 @@ const handleCanvasDrop = (event) => {
   nextTick(() => updatePreview())
 }
 
+/**
+ * 画布放置逻辑：处理手动拖拽和双击生成的坐标
+ */
+const handleCanvasDrop = (event) => {
+  if (!graph || !draggingData) return
+  const rect = graphContainer.value.getBoundingClientRect()
+  const x = event.clientX - rect.left
+  const y = event.clientY - rect.top
+
+  const fieldName = draggingData.label
+  createNodePair(x, y, fieldName, draggingData.path)
+}
+
+/**
+ * 手动添加节点对（点击按钮时调用）
+ */
+const addNodePair = () => {
+  if (!graph || !graphContainer.value) return
+  
+  // 获取画布中心位置
+  const rect = graphContainer.value.getBoundingClientRect()
+  const centerX = rect.width / 2
+  const centerY = rect.height / 2
+  
+  // 使用默认字段名创建节点对
+  createNodePair(centerX, centerY, `field_${nodeCounter + 1}`, null)
+  
+  ElMessage.success('已添加新节点，可以双击节点进行编辑')
+}
+
 // --- 配置与转换逻辑 ---
 const openNodeEditDialog = (node) => {
   currentNodeToEdit = node
   const data = node.getData()
-  currentNodeEdit.value = { fieldName: node.attr('text/text'), path: data.path }
+  currentNodeEditType.value = data.type || '' // 保存节点类型
+  currentNodeEdit.value = { 
+    fieldName: node.attr('text/text') || '', 
+    path: data.path || '' 
+  }
   nodeEditVisible.value = true
 }
 
 const saveNodeEdit = () => {
+  if (!currentNodeToEdit) return
+  
+  // 更新节点文本标签
   currentNodeToEdit.attr('text/text', currentNodeEdit.value.fieldName)
-  currentNodeToEdit.setData({ ...currentNodeToEdit.getData(), path: currentNodeEdit.value.path })
+  
+  // 更新节点数据（包括路径）
+  const currentData = currentNodeToEdit.getData()
+  currentNodeToEdit.setData({ 
+    ...currentData, 
+    path: currentNodeEdit.value.path || currentNodeEdit.value.fieldName
+  })
+  
   nodeEditVisible.value = false
-  updatePreview()
+  nextTick(() => updatePreview())
 }
 
 const openEdgeConfig = (edge) => {
@@ -1246,8 +1315,9 @@ const loadRulesToCanvas = async (rules) => {
 .editor-card { height: calc(100vh - 100px); }
 .editor-container { display: flex; gap: 20px; height: calc(100vh - 200px); }
 .source-panel { width: 300px; display: flex; flex-direction: column; }
-.canvas-panel { flex: 1; border: 1px solid #ddd; border-radius: 4px; overflow: hidden; position: relative; }
-.graph-container { width: 100%; height: 100%; background-color: #fafafa; }
+.canvas-panel { flex: 1; border: 1px solid #ddd; border-radius: 4px; overflow: hidden; position: relative; display: flex; flex-direction: column; }
+.canvas-toolbar { padding: 10px; border-bottom: 1px solid #ddd; background-color: #fff; }
+.graph-container { flex: 1; width: 100%; background-color: #fafafa; }
 .preview-panel { width: 350px; display: flex; flex-direction: column; }
 .data-tree { flex: 1; overflow: auto; border: 1px solid #ddd; padding: 10px; }
 .dict-item { display: flex; align-items: center; margin-bottom: 8px; }
