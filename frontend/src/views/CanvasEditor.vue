@@ -5,7 +5,7 @@
         <div class="card-header">
           <span>报文映射画布编辑器</span>
           <div>
-            <el-button @click="exportConfig">导出配置</el-button>
+            <el-button @click="openSaveConfigDialog">保存配置</el-button>
           </div>
         </div>
       </template>
@@ -224,6 +224,27 @@
         <el-button type="primary" @click="saveEdgeConfig">确定</el-button>
       </template>
     </el-dialog>
+
+    <!-- 保存配置对话框 -->
+    <el-dialog v-model="saveConfigVisible" title="保存配置" width="500px">
+      <el-form :model="saveConfigForm" label-width="100px">
+        <el-form-item label="配置名称" required>
+          <el-input v-model="saveConfigForm.name" placeholder="请输入配置名称" />
+        </el-form-item>
+        <el-form-item label="配置描述">
+          <el-input
+            v-model="saveConfigForm.description"
+            type="textarea"
+            :rows="3"
+            placeholder="请输入配置描述（可选）"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="saveConfigVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveConfig" :loading="saving">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -233,7 +254,8 @@ import { Graph } from '@antv/x6'
 import { Selection } from '@antv/x6-plugin-selection'
 import { ElMessage } from 'element-plus'
 import { Document, Delete } from '@element-plus/icons-vue'
-import { transformV2Api } from '../api'
+import { transformV2Api, configApi } from '../api'
+import { useRoute, useRouter } from 'vue-router'
 
 // --- 状态变量 ---
 const sourceJson = ref('')
@@ -268,8 +290,29 @@ const dictKeys = ref([])
 const dictValues = ref([])
 const subMappings = ref([]) // 一对多映射的子映射列表
 
+// 保存配置相关
+const saveConfigVisible = ref(false)
+const saving = ref(false)
+const saveConfigForm = ref({
+  name: '',
+  description: ''
+})
+
+// 路由相关
+const route = useRoute()
+const router = useRouter()
+const currentConfigId = ref(null) // 当前编辑的配置ID
+
 onMounted(() => {
-  nextTick(() => initGraph())
+  nextTick(() => {
+    initGraph()
+    // 检查URL参数，如果是编辑模式则加载配置
+    const configId = route.query.configId
+    if (configId) {
+      currentConfigId.value = configId
+      loadConfigToCanvas(Number(configId))
+    }
+  })
 })
 
 onUnmounted(() => {
@@ -941,10 +984,260 @@ const exportMappingConfig = () => {
   return config
 }
 
-const exportConfig = () => {
+// 打开保存配置对话框
+const openSaveConfigDialog = () => {
   const config = exportMappingConfig()
-  navigator.clipboard.writeText(JSON.stringify(config, null, 2))
-  ElMessage.success('配置已复制')
+  if (!config.rules || config.rules.length === 0) {
+    ElMessage.warning('请先配置映射规则')
+    return
+  }
+  saveConfigForm.value.name = ''
+  saveConfigForm.value.description = ''
+  saveConfigVisible.value = true
+}
+
+// 保存配置
+const saveConfig = async () => {
+  if (!saveConfigForm.value.name?.trim()) {
+    ElMessage.warning('请输入配置名称')
+    return
+  }
+  
+  saving.value = true
+  try {
+    const config = exportMappingConfig()
+    const res = await configApi.saveConfig(
+      saveConfigForm.value.name.trim(),
+      saveConfigForm.value.description?.trim() || '',
+      config
+    )
+    
+    if (res.data.success) {
+      ElMessage.success('配置保存成功')
+      saveConfigVisible.value = false
+      currentConfigId.value = res.data.data.id
+      // 更新URL，添加configId参数
+      router.replace({ query: { configId: res.data.data.id } })
+    } else {
+      ElMessage.error(res.data.errorMessage || '保存失败')
+    }
+  } catch (e) {
+    const errorMsg = e.response?.data?.errorMessage || e.message || '保存失败'
+    ElMessage.error(errorMsg)
+  } finally {
+    saving.value = false
+  }
+}
+
+// 从配置加载到画布
+const loadConfigToCanvas = async (configId) => {
+  try {
+    const res = await configApi.getConfigById(configId)
+    if (!res.data.success || !res.data.data) {
+      ElMessage.error('加载配置失败')
+      return
+    }
+    
+    const entity = res.data.data
+    const config = JSON.parse(entity.configContent)
+    
+    // 设置协议类型
+    sourceProtocol.value = config.sourceProtocol || 'JSON'
+    targetProtocol.value = config.targetProtocol || 'JSON'
+    if (config.xmlRootElementName) {
+      xmlRootElementName.value = config.xmlRootElementName
+    }
+    if (config.includeXmlDeclaration !== undefined) {
+      includeXmlDeclaration.value = config.includeXmlDeclaration
+    }
+    
+    // 清空画布
+    if (graph) {
+      graph.clearCells()
+    }
+    nodeCounter = 0
+    
+    // 重建节点和边
+    await nextTick()
+    await loadRulesToCanvas(config.rules || [])
+    
+    ElMessage.success('配置加载成功')
+  } catch (e) {
+    console.error('加载配置失败:', e)
+    ElMessage.error('加载配置失败: ' + (e.message || '未知错误'))
+  }
+}
+
+// 将规则加载到画布
+const loadRulesToCanvas = async (rules) => {
+  if (!graph || !rules || rules.length === 0) return
+  
+  // 创建节点映射：sourcePath/targetPath -> nodeId
+  const sourceNodeMap = new Map()
+  const targetNodeMap = new Map()
+  const COLUMN_WIDTH = 450
+  const ROW_HEIGHT = 60
+  let currentRow = 0
+  
+  // 第一步：创建所有节点
+  rules.forEach((rule, index) => {
+    // 处理源节点
+    if (rule.sourcePath) {
+      const sourcePath = rule.sourcePath.replace(/^\$\./, '')
+      const sourcePathKey = sourcePath
+      if (!sourceNodeMap.has(sourcePathKey)) {
+        const nodeId = `s_${++nodeCounter}`
+        const x = 50
+        const y = 50 + (currentRow * ROW_HEIGHT)
+        
+        // 提取字段名（路径的最后一部分）
+        const fieldName = sourcePath.split('.').pop() || sourcePath
+        
+        graph.addNode({
+          id: nodeId,
+          x: x,
+          y: y,
+          width: 140,
+          height: 40,
+          label: fieldName,
+          data: { type: 'source', path: sourcePath },
+          ports: {
+            groups: { right: { position: 'right', attrs: { circle: { r: 4, magnet: true, stroke: '#2196f3', fill: '#fff' } } } },
+            items: [{ id: 'p1', group: 'right' }]
+          },
+          attrs: { body: { fill: '#e3f2fd', stroke: '#2196f3', rx: 4 }, text: { text: fieldName, fontSize: 12 } }
+        })
+        sourceNodeMap.set(sourcePathKey, nodeId)
+      }
+    }
+    
+    // 处理目标节点
+    const targetPath = rule.targetPath
+    const targetPathKey = targetPath
+    if (!targetNodeMap.has(targetPathKey)) {
+      const nodeId = `t_${++nodeCounter}`
+      const x = 300
+      const y = 50 + (currentRow * ROW_HEIGHT)
+      
+      // 提取字段名
+      const fieldName = targetPath.split('.').pop() || targetPath
+      
+      graph.addNode({
+        id: nodeId,
+        x: x,
+        y: y,
+        width: 140,
+        height: 40,
+        label: fieldName,
+        data: { type: 'target', path: targetPath },
+        ports: {
+          groups: { left: { position: 'left', attrs: { circle: { r: 4, magnet: true, stroke: '#9c27b0', fill: '#fff' } } } },
+          items: [{ id: 'p1', group: 'left' }]
+        },
+        attrs: { body: { fill: '#f3e5f5', stroke: '#9c27b0', rx: 4 }, text: { text: fieldName, fontSize: 12 } }
+      })
+      targetNodeMap.set(targetPathKey, nodeId)
+      currentRow++
+    }
+    
+    // 处理多对一映射的额外源
+    if (rule.additionalSources && Array.isArray(rule.additionalSources)) {
+      rule.additionalSources.forEach(additionalPath => {
+        const sourcePathKey = additionalPath.replace(/^\$\./, '')
+        if (!sourceNodeMap.has(sourcePathKey)) {
+          const nodeId = `s_${++nodeCounter}`
+          const x = 50
+          const y = 50 + (currentRow * ROW_HEIGHT)
+          const fieldName = sourcePathKey.split('.').pop() || sourcePathKey
+          
+          graph.addNode({
+            id: nodeId,
+            x: x,
+            y: y,
+            width: 140,
+            height: 40,
+            label: fieldName,
+            data: { type: 'source', path: sourcePathKey },
+            ports: {
+              groups: { right: { position: 'right', attrs: { circle: { r: 4, magnet: true, stroke: '#2196f3', fill: '#fff' } } } },
+              items: [{ id: 'p1', group: 'right' }]
+            },
+            attrs: { body: { fill: '#e3f2fd', stroke: '#2196f3', rx: 4 }, text: { text: fieldName, fontSize: 12 } }
+          })
+          sourceNodeMap.set(sourcePathKey, nodeId)
+        }
+      })
+    }
+  })
+  
+  // 第二步：创建所有边
+  rules.forEach((rule) => {
+    if (rule.mappingType === 'MANY_TO_ONE' && rule.additionalSources) {
+      // 多对一映射：主源路径 + 额外源路径 -> 目标
+      const targetPathKey = rule.targetPath
+      const targetNodeId = targetNodeMap.get(targetPathKey)
+      
+      if (targetNodeId && rule.sourcePath) {
+        const sourcePathKey = rule.sourcePath.replace(/^\$\./, '')
+        const sourceNodeId = sourceNodeMap.get(sourcePathKey)
+        
+        if (sourceNodeId) {
+          graph.addEdge({
+            source: { cell: sourceNodeId, port: 'p1' },
+            target: { cell: targetNodeId, port: 'p1' },
+            attrs: { line: { stroke: '#8f8f8f', strokeWidth: 2 } },
+            data: {
+              mappingType: rule.mappingType,
+              transformType: rule.transformType || 'GROOVY',
+              transformConfig: rule.transformConfig || {}
+            },
+            labels: [{ attrs: { text: { text: rule.transformType || 'GROOVY', fontSize: 10 } } }]
+          })
+        }
+        
+        // 添加额外源的边
+        rule.additionalSources.forEach(additionalPath => {
+          const additionalPathKey = additionalPath.replace(/^\$\./, '')
+          const additionalSourceNodeId = sourceNodeMap.get(additionalPathKey)
+          if (additionalSourceNodeId) {
+            graph.addEdge({
+              source: { cell: additionalSourceNodeId, port: 'p1' },
+              target: { cell: targetNodeId, port: 'p1' },
+              attrs: { line: { stroke: '#8f8f8f', strokeWidth: 2 } },
+              data: {
+                mappingType: 'MANY_TO_ONE',
+                transformType: rule.transformType || 'GROOVY',
+                transformConfig: rule.transformConfig || {}
+              },
+              labels: [{ attrs: { text: { text: rule.transformType || 'GROOVY', fontSize: 10 } } }]
+            })
+          }
+        })
+      }
+    } else {
+      // 一对一或一对多映射
+      if (rule.sourcePath && rule.targetPath) {
+        const sourcePathKey = rule.sourcePath.replace(/^\$\./, '')
+        const targetPathKey = rule.targetPath
+        const sourceNodeId = sourceNodeMap.get(sourcePathKey)
+        const targetNodeId = targetNodeMap.get(targetPathKey)
+        
+        if (sourceNodeId && targetNodeId) {
+          graph.addEdge({
+            source: { cell: sourceNodeId, port: 'p1' },
+            target: { cell: targetNodeId, port: 'p1' },
+            attrs: { line: { stroke: '#8f8f8f', strokeWidth: 2 } },
+            data: {
+              mappingType: rule.mappingType || 'ONE_TO_ONE',
+              transformType: rule.transformType || 'DIRECT',
+              transformConfig: rule.transformConfig || {}
+            },
+            labels: [{ attrs: { text: { text: rule.transformType || 'DIRECT', fontSize: 10 } } }]
+          })
+        }
+      }
+    }
+  })
 }
 </script>
 

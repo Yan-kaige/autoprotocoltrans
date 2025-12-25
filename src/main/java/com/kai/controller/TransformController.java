@@ -2,6 +2,7 @@ package com.kai.controller;
 
 import com.kai.dto.TransformResponse;
 import com.kai.model.MappingConfig;
+import com.kai.service.MappingConfigService;
 import com.kai.service.TransformationEngine;
 import com.kai.util.MessageConverterUtil;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,8 +23,11 @@ public class TransformController {
     @Autowired
     private TransformationEngine transformationEngine;
     
+    @Autowired
+    private MappingConfigService configService;
+    
     /**
-     * 执行转换（使用MappingConfig配置）
+     * 执行转换（使用MappingConfig配置对象）
      * 
      * @param request 包含sourceData和mappingConfig的请求
      * @return 转换结果
@@ -41,6 +45,39 @@ public class TransformController {
                 return ResponseEntity.badRequest().body(response);
             }
             
+            String result = transformationEngine.transform(sourceData, config);
+            response.setSuccess(true);
+            response.setTransformedData(result);
+        } catch (Exception e) {
+            response.setSuccess(false);
+            response.setErrorMessage(e.getMessage());
+        }
+        return ResponseEntity.ok(response);
+    }
+    
+    /**
+     * 根据配置名称执行转换（推荐方式）
+     * 
+     * @param request 包含sourceData和configName的请求
+     * @return 转换结果
+     */
+    @PostMapping("/by-name")
+    public ResponseEntity<TransformResponse> transformByName(@RequestBody TransformByNameRequest request) {
+        TransformResponse response = new TransformResponse();
+        try {
+            String sourceData = request.getSourceData();
+            String configName = request.getConfigName();
+            
+            if (sourceData == null || configName == null || configName.trim().isEmpty()) {
+                response.setSuccess(false);
+                response.setErrorMessage("源数据和配置名称不能为空");
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+            // 从数据库加载配置
+            MappingConfig config = configService.getConfigByName(configName);
+            
+            // 执行转换
             String result = transformationEngine.transform(sourceData, config);
             response.setSuccess(true);
             response.setTransformedData(result);
@@ -92,6 +129,17 @@ public class TransformController {
     public static class TransformRequestV2 {
         private String sourceData;
         private MappingConfig mappingConfig;
+    }
+    
+    /**
+     * 根据配置名称转换请求DTO
+     */
+    @lombok.Data
+    @lombok.NoArgsConstructor
+    @lombok.AllArgsConstructor
+    public static class TransformByNameRequest {
+        private String sourceData;
+        private String configName;
     }
     
     /**

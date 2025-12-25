@@ -97,7 +97,33 @@ npm run build
 
 ## API接口
 
-### 规则管理
+### 转换接口（推荐使用）
+
+- `POST /api/v2/transform` - 使用配置执行转换（支持JSON/XML互转）
+
+详细的API使用文档请参考：**[API使用文档](docs/API_USAGE.md)**
+
+**快速示例**：
+```bash
+curl -X POST http://localhost:8080/api/v2/transform \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sourceData": "{\"user\":{\"name\":\"张三\"}}",
+    "mappingConfig": {
+      "sourceProtocol": "JSON",
+      "targetProtocol": "JSON",
+      "prettyPrint": true,
+      "rules": [...]
+    }
+  }'
+```
+
+**示例代码**：
+- Python: `examples/test-api.py`
+- Shell: `examples/test-api.sh`
+- 配置示例: `examples/transform-example.json`
+
+### 规则管理（旧版API）
 - `GET /api/rules` - 获取所有规则
 - `GET /api/rules/{id}` - 根据ID获取规则
 - `POST /api/rules` - 创建或更新规则

@@ -1,7 +1,6 @@
 package com.kai.util;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.ObjectWriter;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 import lombok.extern.slf4j.Slf4j;
 
@@ -102,26 +101,46 @@ public class MessageConverterUtil {
         try {
             switch (type) {
                 case "XML":
-                    String rootName = (xmlRootElementName != null && !xmlRootElementName.trim().isEmpty())
-                            ? xmlRootElementName.trim() : null;
-
-                    ObjectWriter writer;
-                    if (rootName != null) {
-                        // 关键点：告诉 Jackson 直接使用这个名字作为根，而不是 <HashMap>
-                        writer = xmlMapper.writer().withRootName(rootName);
-                    } else {
-                        writer = xmlMapper.writer();
+                    Map<String, Object> xmlMap = targetMap;
+                    // 如果指定了XML根元素名称，需要决定如何处理
+                    if (xmlRootElementName != null && !xmlRootElementName.trim().isEmpty()) {
+                        String rootName = xmlRootElementName.trim();
+                        
+                        // 检查targetMap是否只有一个键值对，且键名就是我们要的根元素名
+                        // 如果是，就不需要再包装了（已经是正确的结构）
+                        if (targetMap.size() == 1 && targetMap.containsKey(rootName)) {
+                            // 已经是正确的结构，直接使用
+                            log.debug("targetMap已包含根元素{}，无需包装", rootName);
+                            xmlMap = targetMap;
+                        } else {
+                            // 需要包装：将整个targetMap包装在指定的根元素中
+                            log.debug("包装targetMap到根元素{}中，targetMap大小: {}", rootName, targetMap.size());
+                            Map<String, Object> wrappedMap = new LinkedHashMap<>(1);
+                            wrappedMap.put(rootName, targetMap);
+                            xmlMap = wrappedMap;
+                        }
                     }
-
+                    String xmlString;
                     if (prettyPrint) {
-                        writer = writer.withDefaultPrettyPrinter();
+                        xmlString = xmlMapper.writerWithDefaultPrettyPrinter().writeValueAsString(xmlMap);
+                    } else {
+                        xmlString = xmlMapper.writeValueAsString(xmlMap);
                     }
-
-                    // 直接序列化原始 targetMap，Jackson 会自动处理根节点
-                    String xmlString = writer.writeValueAsString(targetMap);
-
-                    // 处理 XML 声明
-                    if (includeXmlDeclaration && !xmlString.trim().startsWith("<?xml")) {
+                    
+                    // 如果生成的XML以<HashMap>、<LinkedHashMap>等开头，替换为指定的根元素名
+                    if (xmlRootElementName != null && !xmlRootElementName.trim().isEmpty()) {
+                        String rootName = xmlRootElementName.trim();
+                        // 替换各种可能的Map类型标签
+                        xmlString = xmlString.replaceFirst("<HashMap>", "<" + rootName + ">");
+                        xmlString = xmlString.replaceFirst("</HashMap>", "</" + rootName + ">");
+                        xmlString = xmlString.replaceFirst("<LinkedHashMap>", "<" + rootName + ">");
+                        xmlString = xmlString.replaceFirst("</LinkedHashMap>", "</" + rootName + ">");
+                        xmlString = xmlString.replaceFirst("<TreeMap>", "<" + rootName + ">");
+                        xmlString = xmlString.replaceFirst("</TreeMap>", "</" + rootName + ">");
+                    }
+                    
+                    // 如果需要包含XML声明，手动添加到开头
+                    if (includeXmlDeclaration && (xmlString == null || !xmlString.trim().startsWith("<?xml"))) {
                         xmlString = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" + xmlString;
                     }
                     return xmlString;

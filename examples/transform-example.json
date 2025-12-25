@@ -1,0 +1,142 @@
+{
+  "示例1_JSON到JSON": {
+    "sourceData": "{\"user\":{\"name\":\"张三\",\"age\":30,\"status\":\"active\"}}",
+    "mappingConfig": {
+      "sourceProtocol": "JSON",
+      "targetProtocol": "JSON",
+      "prettyPrint": true,
+      "rules": [
+        {
+          "sourcePath": "$.user.name",
+          "targetPath": "customer.name",
+          "mappingType": "ONE_TO_ONE",
+          "transformType": "DIRECT"
+        },
+        {
+          "sourcePath": "$.user.age",
+          "targetPath": "customer.age",
+          "mappingType": "ONE_TO_ONE",
+          "transformType": "DIRECT"
+        },
+        {
+          "sourcePath": "$.user.status",
+          "targetPath": "customer.status",
+          "mappingType": "ONE_TO_ONE",
+          "transformType": "FUNCTION",
+          "transformConfig": {
+            "function": "upperCase"
+          }
+        }
+      ]
+    }
+  },
+  "示例2_JSON到XML": {
+    "sourceData": "{\"name\":\"张三\",\"age\":30}",
+    "mappingConfig": {
+      "sourceProtocol": "JSON",
+      "targetProtocol": "XML",
+      "prettyPrint": true,
+      "xmlRootElementName": "user",
+      "includeXmlDeclaration": true,
+      "rules": [
+        {
+          "sourcePath": "$.name",
+          "targetPath": "name",
+          "mappingType": "ONE_TO_ONE",
+          "transformType": "DIRECT"
+        },
+        {
+          "sourcePath": "$.age",
+          "targetPath": "age",
+          "mappingType": "ONE_TO_ONE",
+          "transformType": "DIRECT"
+        }
+      ]
+    }
+  },
+  "示例3_XML到JSON": {
+    "sourceData": "<user><name>张三</name><age>30</age></user>",
+    "mappingConfig": {
+      "sourceProtocol": "XML",
+      "targetProtocol": "JSON",
+      "prettyPrint": true,
+      "rules": [
+        {
+          "sourcePath": "$.name",
+          "targetPath": "customer.name",
+          "mappingType": "ONE_TO_ONE",
+          "transformType": "DIRECT"
+        },
+        {
+          "sourcePath": "$.age",
+          "targetPath": "customer.age",
+          "mappingType": "ONE_TO_ONE",
+          "transformType": "DIRECT"
+        }
+      ]
+    }
+  },
+  "示例4_多对一映射": {
+    "sourceData": "{\"firstName\":\"张\",\"lastName\":\"三\"}",
+    "mappingConfig": {
+      "sourceProtocol": "JSON",
+      "targetProtocol": "JSON",
+      "prettyPrint": true,
+      "rules": [
+        {
+          "sourcePath": "$.firstName",
+          "additionalSources": ["$.lastName"],
+          "targetPath": "fullName",
+          "mappingType": "MANY_TO_ONE",
+          "transformType": "GROOVY",
+          "transformConfig": {
+            "groovyScript": "def parts = input as List; return (parts[0] ?: '') + ' ' + (parts[1] ?: '')"
+          }
+        }
+      ]
+    }
+  },
+  "示例5_字典映射": {
+    "sourceData": "{\"status\":\"pending\"}",
+    "mappingConfig": {
+      "sourceProtocol": "JSON",
+      "targetProtocol": "JSON",
+      "prettyPrint": true,
+      "rules": [
+        {
+          "sourcePath": "$.status",
+          "targetPath": "status",
+          "mappingType": "ONE_TO_ONE",
+          "transformType": "DICTIONARY",
+          "transformConfig": {
+            "dictionary": {
+              "pending": "待处理",
+              "completed": "已完成",
+              "cancelled": "已取消"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "示例6_固定值": {
+    "sourceData": "{}",
+    "mappingConfig": {
+      "sourceProtocol": "JSON",
+      "targetProtocol": "JSON",
+      "prettyPrint": true,
+      "rules": [
+        {
+          "sourcePath": null,
+          "targetPath": "createTime",
+          "mappingType": "ONE_TO_ONE",
+          "transformType": "FIXED",
+          "transformConfig": {
+            "fixedValue": "2024-01-01 00:00:00"
+          }
+        }
+      ]
+    }
+  }
+}
+

@@ -44,7 +44,40 @@ export const transformV2Api = {
     api.post('/v2/transform', {
       sourceData,
       mappingConfig
+    }),
+  
+  // 根据配置名称执行转换
+  transformByName: (sourceData, configName) =>
+    api.post('/v2/transform/by-name', {
+      sourceData,
+      configName
     })
+}
+
+// 配置管理API
+export const configApi = {
+  // 获取所有配置列表
+  getAllConfigs: () => api.get('/v2/config/list'),
+  
+  // 根据ID获取配置
+  getConfigById: (id) => api.get(`/v2/config/${id}`),
+  
+  // 根据名称获取配置
+  getConfigByName: (name) => api.get(`/v2/config/name/${name}`),
+  
+  // 保存配置
+  saveConfig: (name, description, mappingConfig) =>
+    api.post('/v2/config/save', {
+      name,
+      description,
+      mappingConfig
+    }),
+  
+  // 删除配置
+  deleteConfig: (id) => api.delete(`/v2/config/${id}`),
+  
+  // 检查配置名称是否存在
+  checkNameExists: (name) => api.get(`/v2/config/check-name/${name}`)
 }
 
 export default api
