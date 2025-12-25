@@ -686,6 +686,124 @@ const handleCanvasDrop = (event) => {
 }
 
 /**
+ * 将对象转换为XML字符串
+ */
+const objectToXml = (obj, rootName = 'root') => {
+  const escapeXml = (str) => {
+    if (typeof str !== 'string') return String(str)
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;')
+  }
+  
+  const formatValue = (value, indent = '') => {
+    if (value === null || value === undefined) {
+      return ''
+    } else if (Array.isArray(value)) {
+      // 数组：每个元素使用相同的标签名
+      return value.map(item => {
+        const formatted = formatValue(item, indent + '  ')
+        // 如果数组元素是对象，需要找到合适的标签名
+        // 这里简化处理，使用 'item' 作为标签名
+        if (typeof item === 'object' && item !== null) {
+          return `${indent}  <item>\n${formatted}\n${indent}  </item>`
+        } else {
+          return `${indent}  <item>${escapeXml(item)}</item>`
+        }
+      }).join('\n')
+    } else if (typeof value === 'object') {
+      const entries = Object.entries(value)
+      if (entries.length === 0) {
+        return ''
+      }
+      return entries.map(([key, val]) => {
+        const nextIndent = indent + '  '
+        const formattedVal = formatValue(val, nextIndent)
+        if (formattedVal === '') {
+          return `${indent}<${key}></${key}>`
+        } else if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
+          return `${indent}<${key}>\n${formattedVal}\n${indent}</${key}>`
+        } else {
+          return `${indent}<${key}>${escapeXml(formattedVal)}</${key}>`
+        }
+      }).join('\n')
+    } else {
+      return escapeXml(String(value))
+    }
+  }
+  
+  const formatted = formatValue(obj, '  ')
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<${rootName}>\n${formatted}\n</${rootName}>`
+}
+
+/**
+ * 添加字段到源数据
+ */
+const addFieldToSourceData = (fieldName) => {
+  try {
+    let currentData = {}
+    let rootName = 'root'
+    
+    // 解析现有数据
+    if (sourceJson.value.trim()) {
+      if (sourceProtocol.value === 'XML') {
+        // 提取根元素名称（跳过XML声明）
+        const xmlContent = sourceJson.value.trim()
+        const rootMatch = xmlContent.match(/<([a-zA-Z_][a-zA-Z0-9_-]*)[\s>]/)
+        if (rootMatch && rootMatch[1] && rootMatch[1] !== 'xml') {
+          rootName = rootMatch[1]
+        }
+        currentData = parseXmlToObject(sourceJson.value)
+      } else {
+        currentData = JSON.parse(sourceJson.value)
+      }
+    }
+    
+    // 如果当前数据是数组，转换为对象
+    if (Array.isArray(currentData)) {
+      currentData = { items: currentData }
+    }
+    
+    // 确保是对象
+    if (typeof currentData !== 'object' || currentData === null) {
+      currentData = {}
+    }
+    
+    // 检查字段是否已存在，如果存在则不重复添加
+    if (currentData[fieldName] !== undefined) {
+      return
+    }
+    
+    // 添加新字段，使用默认测试值
+    currentData[fieldName] = `test_${fieldName}`
+    
+    // 根据协议类型格式化并更新
+    if (sourceProtocol.value === 'XML') {
+      // XML格式：使用提取的或默认的根元素名称
+      sourceJson.value = objectToXml(currentData, rootName)
+    } else {
+      // JSON格式：格式化输出
+      sourceJson.value = JSON.stringify(currentData, null, 2)
+    }
+    
+    // 刷新树显示
+    parseSourceTree()
+  } catch (e) {
+    console.error('添加字段到源数据失败:', e)
+    // 如果解析失败，创建新的数据结构
+    if (sourceProtocol.value === 'XML') {
+      sourceJson.value = `<?xml version="1.0" encoding="UTF-8"?>\n<root>\n  <${fieldName}>test_${fieldName}</${fieldName}>\n</root>`
+    } else {
+      sourceJson.value = JSON.stringify({ [fieldName]: `test_${fieldName}` }, null, 2)
+    }
+    parseSourceTree()
+  }
+}
+
+/**
  * 手动添加节点对（点击按钮时调用）
  */
 const addNodePair = () => {
@@ -702,8 +820,14 @@ const addNodePair = () => {
   const targetX = 250 + (col * COLUMN_WIDTH)
   const targetY = 50 + (row * ROW_HEIGHT)
   
+  // 生成字段名
+  const fieldName = `field_${nodeCounter + 1}`
+  
   // 使用默认字段名创建节点对
-  createNodePair(targetX, targetY, `field_${nodeCounter + 1}`, null)
+  createNodePair(targetX, targetY, fieldName, null)
+  
+  // 自动生成对应的测试输入数据
+  addFieldToSourceData(fieldName)
   
   // 计数器加1，确保下次不重叠
   autoLayoutCount++
