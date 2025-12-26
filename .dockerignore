@@ -1,0 +1,47 @@
+# Git相关
+.git
+.gitignore
+.gitattributes
+
+# IDE相关
+.idea
+.vscode
+*.iml
+*.swp
+*.swo
+*~
+
+# 构建产物
+target/
+frontend/dist/
+frontend/node_modules/
+frontend/.vite/
+
+# 日志文件
+*.log
+logs/
+
+# 临时文件
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# 文档（保留README.md）
+docs/
+*.md
+!README.md
+
+# 示例和测试数据
+examples/
+test-data/
+
+# Docker相关（避免递归）
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# 其他
+mvnw
+mvnw.cmd
+.mvn/

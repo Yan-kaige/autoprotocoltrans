@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  # MySQL数据库服务
+  mysql:
+    image: mysql:8.0
+    container_name: autoprotocoltrans-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: 123456
+      MYSQL_DATABASE: protovol_trans
+      MYSQL_USER: appuser
+      MYSQL_PASSWORD: apppass
+      TZ: Asia/Shanghai
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./src/main/resources/db/migration:/docker-entrypoint-initdb.d
+    command: 
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p123456"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Spring Boot应用服务
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: autoprotocoltrans-app
+    restart: always
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/protovol_trans?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: 123456
+      TZ: Asia/Shanghai
+    ports:
+      - "8080:8080"
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/api/v2/config/list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  mysql_data:
+    driver: local
+

@@ -1,0 +1,7 @@
+spring:
+  datasource:
+    # Docker环境中通过环境变量覆盖数据库连接
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://mysql:3306/protovol_trans?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
+    username: ${SPRING_DATASOURCE_USERNAME:root}
+    password: ${SPRING_DATASOURCE_PASSWORD:123456}
+
