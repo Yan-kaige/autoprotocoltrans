@@ -22,10 +22,8 @@ FROM maven:3.9-eclipse-temurin-17 AS backend-builder
 
 WORKDIR /app
 
-# 复制 pom.xml 和 mvnw
+# 复制 pom.xml（Maven 镜像已包含 Maven，不需要 mvnw）
 COPY pom.xml .
-COPY .mvn .mvn
-COPY mvnw .
 
 # 下载依赖（利用Docker缓存层）
 RUN mvn dependency:go-offline -B

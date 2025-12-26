@@ -41,7 +41,7 @@ Dockerfile
 docker-compose.yml
 .dockerignore
 
-# 其他
-mvnw
-mvnw.cmd
-.mvn/
+# 其他（Maven Wrapper 需要保留用于构建）
+# mvnw
+# mvnw.cmd
+# .mvn/
