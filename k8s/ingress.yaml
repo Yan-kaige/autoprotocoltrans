@@ -1,0 +1,28 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: autoprotocoltrans-ingress
+  namespace: autoprotocoltrans
+  annotations:
+    # Nginx Ingress Controller 注解
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    # 如果使用其他 Ingress Controller，调整相应的注解
+spec:
+  ingressClassName: nginx  # 根据您的 Ingress Controller 调整
+  rules:
+  - host: autoprotocoltrans.example.com  # 修改为您的域名
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: autoprotocoltrans-app
+            port:
+              number: 80
+  # 如果需要 HTTPS，取消注释以下配置
+  # tls:
+  # - hosts:
+  #   - autoprotocoltrans.example.com
+  #   secretName: autoprotocoltrans-tls
+

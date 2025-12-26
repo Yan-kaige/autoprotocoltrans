@@ -1,0 +1,29 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: autoprotocoltrans
+
+resources:
+  # 命名空间
+  - namespace.yaml
+  # MySQL 相关
+  - mysql-secret.yaml
+  - mysql-configmap.yaml
+  - mysql-init-scripts-configmap.yaml
+  - mysql-pvc.yaml
+  - mysql-deployment.yaml
+  - mysql-service.yaml
+  # 应用相关
+  - app-secret.yaml
+  - app-configmap.yaml
+  - app-deployment.yaml
+  - app-service.yaml
+  # Ingress（可选）
+  # - ingress.yaml
+
+# 如果需要使用公共镜像，可以在这里配置镜像替换
+# images:
+# - name: autoprotocoltrans
+#   newName: your-registry/autoprotocoltrans
+#   newTag: v1.0.0
+

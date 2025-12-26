@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: autoprotocoltrans-app
+  namespace: autoprotocoltrans
+  labels:
+    app: autoprotocoltrans-app
+spec:
+  replicas: 2  # 可以根据需要调整副本数
+  selector:
+    matchLabels:
+      app: autoprotocoltrans-app
+  template:
+    metadata:
+      labels:
+        app: autoprotocoltrans-app
+    spec:
+      containers:
+      - name: app
+        # 替换为您的镜像仓库地址和标签
+        image: autoprotocoltrans:latest
+        # 或者使用远程仓库
+        # image: your-registry/autoprotocoltrans:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: SPRING_DATASOURCE_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: app-secret
+              key: datasource-username
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: app-secret
+              key: datasource-password
+        envFrom:
+        - configMapRef:
+            name: app-config
+        livenessProbe:
+          httpGet:
+            path: /api/v2/config/list
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /api/v2/config/list
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+      # 如果使用私有镜像仓库，需要配置 imagePullSecrets
+      # imagePullSecrets:
+      # - name: registry-secret
+
