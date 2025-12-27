@@ -44,6 +44,10 @@
       v-model="dialogVisible" 
       :title="currentFunctionId ? '编辑函数' : '新建函数'" 
       width="800px"
+      :append-to-body="true"
+      :trap-focus="false"
+      :destroy-on-close="true"
+      @opened="handleDialogOpened"
       @close="resetDialog"
     >
       <el-form :model="functionForm" label-width="100px" :rules="rules" ref="formRef">
@@ -65,12 +69,10 @@
           />
         </el-form-item>
         <el-form-item label="Groovy脚本" prop="script">
-          <el-input 
-            v-model="functionForm.script" 
-            type="textarea" 
-            :rows="8"
-            placeholder="请输入Groovy脚本代码。脚本应返回转换结果，输入值通过input变量访问。&#10;示例：return input.toString().toUpperCase()"
-          />
+          <div 
+            id="function-monaco-editor" 
+            style="height: 400px; width: 100%; border: 1px solid #dcdfe6; border-radius: 4px; pointer-events: auto !important;"
+          ></div>
           <div style="color: #909399; font-size: 12px; margin-top: 5px;">
             脚本说明：输入值通过 <code>input</code> 变量访问，需要返回转换后的结果
           </div>
@@ -88,9 +90,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, nextTick, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { functionApi } from '../api'
+import loader from '@monaco-editor/loader'
 const functionList = ref([])
 const loading = ref(false)
 const dialogVisible = ref(false)
@@ -106,14 +109,180 @@ const functionForm = ref({
   enabled: true
 })
 
+let functionEditor = null // Monaco Editor 实例
+let isMonacoProviderRegistered = false // Monaco Provider 是否已注册
+
 const rules = {
   name: [{ required: true, message: '请输入函数名称', trigger: 'blur' }],
   code: [{ required: true, message: '请输入函数编码', trigger: 'blur' }],
   script: [{ required: true, message: '请输入Groovy脚本', trigger: 'blur' }]
 }
 
+// 注册 Monaco 代码提示提供器（全局只注册一次）
+const registerMonacoProviders = async (monaco) => {
+  if (isMonacoProviderRegistered) return
+  
+  // 1. 注册基础类型提示
+  monaco.languages.typescript.javascriptDefaults.addExtraLib(`
+    declare var input: any;
+    declare var inputs: any[];
+    interface String { 
+      split(sep: string): string[]; 
+      substring(s: number, e?: number): string;
+      toString(): string;
+      length: number;
+      toLowerCase(): string;
+      toUpperCase(): string;
+      trim(): string;
+      replace(searchValue: string, replaceValue: string): string;
+    }
+    interface Array<T> {
+      length: number;
+      map<U>(callback: (value: T) => U): U[];
+      filter(callback: (value: T) => boolean): T[];
+      join(separator?: string): string;
+      forEach(callback: (value: T) => void): void;
+    }
+  `, 'groovy-lib.d.ts')
+
+  // 2. 设置编译选项
+  monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
+    target: monaco.languages.typescript.ScriptTarget.ES2020,
+    allowNonTsExtensions: true,
+    checkJs: false
+  })
+
+  // 3. 注册自定义联想提示
+  monaco.languages.registerCompletionItemProvider('javascript', {
+    triggerCharacters: ['.'],
+    provideCompletionItems: (model, position) => {
+      const lineContent = model.getLineContent(position.lineNumber)
+      const textBeforeCursor = lineContent.substring(0, position.column - 1)
+      
+      const word = model.getWordUntilPosition(position)
+      const range = {
+        startLineNumber: position.lineNumber,
+        endLineNumber: position.lineNumber,
+        startColumn: word.startColumn,
+        endColumn: word.endColumn
+      }
+
+      if (textBeforeCursor.endsWith('input.')) {
+        return {
+          suggestions: [
+            { label: 'toString()', kind: monaco.languages.CompletionItemKind.Method, documentation: '将值转换为字符串', insertText: 'toString()', range },
+            { label: 'split()', kind: monaco.languages.CompletionItemKind.Method, documentation: '字符串分割：input.split("-")', insertText: 'split(\'${1:separator}\')', insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, range },
+            { label: 'substring()', kind: monaco.languages.CompletionItemKind.Method, documentation: '截取子字符串：input.substring(0, 3)', insertText: 'substring(${1:start}, ${2:end})', insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, range },
+            { label: 'trim()', kind: monaco.languages.CompletionItemKind.Method, documentation: '去除首尾空格', insertText: 'trim()', range },
+            { label: 'toLowerCase()', kind: monaco.languages.CompletionItemKind.Method, documentation: '转换为小写', insertText: 'toLowerCase()', range },
+            { label: 'toUpperCase()', kind: monaco.languages.CompletionItemKind.Method, documentation: '转换为大写', insertText: 'toUpperCase()', range },
+            { label: 'length', kind: monaco.languages.CompletionItemKind.Property, documentation: '获取字符串长度', insertText: 'length', range },
+            { label: 'replace()', kind: monaco.languages.CompletionItemKind.Method, documentation: '字符串替换：input.replace("old", "new")', insertText: 'replace(${1:searchValue}, ${2:replaceValue})', insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, range }
+          ]
+        }
+      }
+      
+      if (textBeforeCursor.endsWith('inputs.')) {
+        return {
+          suggestions: [
+            { label: 'length', kind: monaco.languages.CompletionItemKind.Property, documentation: '数组长度', insertText: 'length', range },
+            { label: 'map()', kind: monaco.languages.CompletionItemKind.Method, documentation: '数组映射：inputs.map { it.toString() }', insertText: 'map(${1:callback})', insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, range },
+            { label: 'filter()', kind: monaco.languages.CompletionItemKind.Method, documentation: '数组过滤：inputs.filter { it != null }', insertText: 'filter(${1:callback})', insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, range },
+            { label: 'join()', kind: monaco.languages.CompletionItemKind.Method, documentation: '数组连接：inputs.join(",")', insertText: 'join(${1:separator})', insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, range },
+            { label: 'forEach()', kind: monaco.languages.CompletionItemKind.Method, documentation: '遍历数组：inputs.forEach { ... }', insertText: 'forEach(${1:callback})', insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, range }
+          ]
+        }
+      }
+      
+      return { suggestions: [] }
+    }
+  })
+  
+  isMonacoProviderRegistered = true
+}
+
+// 初始化函数编辑器（Monaco Editor）
+const initFunctionEditor = async () => {
+  if (functionEditor) {
+    functionEditor.dispose()
+    functionEditor = null
+  }
+
+  setTimeout(async () => {
+    const domElement = document.getElementById('function-monaco-editor')
+    if (!domElement) {
+      console.warn('函数编辑器容器未找到')
+      return
+    }
+
+    try {
+      const monaco = await loader.init()
+      
+      // 执行注册逻辑（全局只注册一次）
+      await registerMonacoProviders(monaco)
+      
+      functionEditor = monaco.editor.create(domElement, {
+        value: functionForm.value.script || 'return input',
+        language: 'javascript',
+        theme: 'vs',
+        automaticLayout: true,
+        fixedOverflowWidgets: true,
+        suggestOnTriggerCharacters: true,
+        quickSuggestions: { other: true, comments: false, strings: true },
+        acceptSuggestionOnEnter: 'on',
+        parameterHints: { enabled: true },
+        wordBasedSuggestions: true,
+        lineNumbers: 'on',
+        renderLineHighlight: 'all',
+        selectOnLineNumbers: true,
+        readOnly: false,
+        accessibilitySupport: 'on'
+      })
+
+      functionEditor.onDidChangeModelContent(() => {
+        if (functionEditor) {
+          const val = functionEditor.getValue()
+          functionForm.value.script = val
+        }
+      })
+
+      domElement.addEventListener('mousedown', () => {
+        if (functionEditor) {
+          functionEditor.focus()
+        }
+      }, true)
+
+      functionEditor.layout()
+      functionEditor.focus()
+    } catch (e) {
+      console.error("Monaco load error:", e)
+    }
+  }, 400)
+}
+
+// 对话框打开后的回调
+const handleDialogOpened = () => {
+  nextTick(() => {
+    // 如果编辑器已存在，更新内容；否则初始化
+    if (functionEditor) {
+      functionEditor.setValue(functionForm.value.script || 'return input')
+      functionEditor.layout()
+    } else {
+      initFunctionEditor()
+    }
+  })
+}
+
+
 onMounted(() => {
   loadFunctionList()
+})
+
+onUnmounted(() => {
+  if (functionEditor) {
+    functionEditor.dispose()
+    functionEditor = null
+  }
 })
 
 const loadFunctionList = async () => {
@@ -150,6 +319,7 @@ const openFunctionDialog = () => {
   currentFunctionId.value = null
   resetDialog()
   dialogVisible.value = true
+  // 编辑器初始化由 @opened 事件处理
 }
 
 const editFunction = async (id) => {
@@ -166,6 +336,7 @@ const editFunction = async (id) => {
         enabled: data.enabled !== undefined ? data.enabled : true
       }
       dialogVisible.value = true
+      // 编辑器内容更新由 @opened 事件处理
     } else {
       ElMessage.error(res.data.errorMessage || '加载函数失败')
     }
@@ -186,10 +357,20 @@ const resetDialog = () => {
   if (formRef.value) {
     formRef.value.resetFields()
   }
+  // 销毁编辑器
+  if (functionEditor) {
+    functionEditor.dispose()
+    functionEditor = null
+  }
 }
 
 const saveFunction = async () => {
   if (!formRef.value) return
+  
+  // 从编辑器获取最新内容
+  if (functionEditor) {
+    functionForm.value.script = functionEditor.getValue()
+  }
   
   try {
     await formRef.value.validate()
@@ -260,6 +441,21 @@ code {
   padding: 2px 6px;
   border-radius: 3px;
   font-family: 'Courier New', monospace;
+}
+
+/* Monaco Editor 样式 */
+.monaco-editor .suggest-widget,
+.monaco-editor .suggest-details,
+.monaco-editor .context-view,
+.editor-widget,
+.editor-container,
+.monaco-aria-container {
+  z-index: 9999 !important;
+}
+
+.monaco-editor .suggest-widget {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+  border: 1px solid #dcdfe6 !important;
 }
 </style>
 
