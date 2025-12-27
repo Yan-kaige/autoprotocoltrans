@@ -386,6 +386,177 @@ const canvasPanel = ref(null)
 let graph = null
 let minimap = null // 小地图实例
 let groovyEditor = null // Monaco Editor 实例
+let isMonacoProviderRegistered = false // Monaco Provider 是否已注册
+
+// 注册 Monaco 代码提示提供器（全局只注册一次）
+const registerMonacoProviders = async (monaco) => {
+  if (isMonacoProviderRegistered) return
+  
+  // 1. 注册基础类型提示
+  monaco.languages.typescript.javascriptDefaults.addExtraLib(`
+    declare var input: any;
+    declare var inputs: any[];
+    interface String { 
+      split(sep: string): string[]; 
+      substring(s: number, e?: number): string;
+      toString(): string;
+      length: number;
+      toLowerCase(): string;
+      toUpperCase(): string;
+      trim(): string;
+      replace(searchValue: string, replaceValue: string): string;
+    }
+    interface Array<T> {
+      length: number;
+      map<U>(callback: (value: T) => U): U[];
+      filter(callback: (value: T) => boolean): T[];
+      join(separator?: string): string;
+      forEach(callback: (value: T) => void): void;
+    }
+  `, 'groovy-lib.d.ts')
+
+  // 2. 设置编译选项
+  monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
+    target: monaco.languages.typescript.ScriptTarget.ES2020,
+    allowNonTsExtensions: true,
+    checkJs: false
+  })
+
+  // 3. 注册自定义联想提示
+  monaco.languages.registerCompletionItemProvider('javascript', {
+    triggerCharacters: ['.'], // 关键：按下点号时触发
+    provideCompletionItems: (model, position) => {
+      const lineContent = model.getLineContent(position.lineNumber)
+      const textBeforeCursor = lineContent.substring(0, position.column - 1)
+      
+      const word = model.getWordUntilPosition(position)
+      const range = {
+        startLineNumber: position.lineNumber,
+        endLineNumber: position.lineNumber,
+        startColumn: word.startColumn,
+        endColumn: word.endColumn
+      }
+
+      // 如果当前行以 input. 结尾
+      if (textBeforeCursor.endsWith('input.')) {
+        return {
+          suggestions: [
+            { 
+              label: 'toString()', 
+              kind: monaco.languages.CompletionItemKind.Method, 
+              documentation: '将值转换为字符串',
+              insertText: 'toString()', 
+              range 
+            },
+            { 
+              label: 'split()', 
+              kind: monaco.languages.CompletionItemKind.Method, 
+              documentation: '字符串分割：input.split("-")',
+              insertText: 'split(\'${1:separator}\')', 
+              insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, 
+              range 
+            },
+            { 
+              label: 'substring()', 
+              kind: monaco.languages.CompletionItemKind.Method, 
+              documentation: '截取子字符串：input.substring(0, 3)',
+              insertText: 'substring(${1:start}, ${2:end})', 
+              insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, 
+              range 
+            },
+            { 
+              label: 'trim()', 
+              kind: monaco.languages.CompletionItemKind.Method, 
+              documentation: '去除首尾空格',
+              insertText: 'trim()', 
+              range 
+            },
+            { 
+              label: 'toLowerCase()', 
+              kind: monaco.languages.CompletionItemKind.Method, 
+              documentation: '转换为小写',
+              insertText: 'toLowerCase()', 
+              range 
+            },
+            { 
+              label: 'toUpperCase()', 
+              kind: monaco.languages.CompletionItemKind.Method, 
+              documentation: '转换为大写',
+              insertText: 'toUpperCase()', 
+              range 
+            },
+            { 
+              label: 'length', 
+              kind: monaco.languages.CompletionItemKind.Property, 
+              documentation: '获取字符串长度',
+              insertText: 'length', 
+              range 
+            },
+            { 
+              label: 'replace()', 
+              kind: monaco.languages.CompletionItemKind.Method, 
+              documentation: '字符串替换：input.replace("old", "new")',
+              insertText: 'replace(${1:searchValue}, ${2:replaceValue})', 
+              insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, 
+              range 
+            }
+          ]
+        }
+      }
+      
+      // 如果当前行以 inputs. 结尾
+      if (textBeforeCursor.endsWith('inputs.')) {
+        return {
+          suggestions: [
+            { 
+              label: 'length', 
+              kind: monaco.languages.CompletionItemKind.Property, 
+              documentation: '数组长度',
+              insertText: 'length', 
+              range 
+            },
+            { 
+              label: 'map()', 
+              kind: monaco.languages.CompletionItemKind.Method, 
+              documentation: '数组映射：inputs.map { it.toString() }',
+              insertText: 'map(${1:callback})', 
+              insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, 
+              range 
+            },
+            { 
+              label: 'filter()', 
+              kind: monaco.languages.CompletionItemKind.Method, 
+              documentation: '数组过滤：inputs.filter { it != null }',
+              insertText: 'filter(${1:callback})', 
+              insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, 
+              range 
+            },
+            { 
+              label: 'join()', 
+              kind: monaco.languages.CompletionItemKind.Method, 
+              documentation: '数组连接：inputs.join(",")',
+              insertText: 'join(${1:separator})', 
+              insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, 
+              range 
+            },
+            { 
+              label: 'forEach()', 
+              kind: monaco.languages.CompletionItemKind.Method, 
+              documentation: '遍历数组：inputs.forEach { ... }',
+              insertText: 'forEach(${1:callback})', 
+              insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, 
+              range 
+            }
+          ]
+        }
+      }
+      
+      return { suggestions: [] }
+    }
+  })
+  
+  isMonacoProviderRegistered = true
+}
 
 // 右键菜单相关
 const contextMenuVisible = ref(false)
@@ -587,12 +758,21 @@ const initGroovyEditor = async () => {
 
     try {
       const monaco = await loader.init()
+      
+      // 执行注册逻辑（全局只注册一次）
+      await registerMonacoProviders(monaco)
+      
       groovyEditor = monaco.editor.create(domElement, {
         value: currentEdgeConfig.value.transformConfig?.groovyScript || 'return input',
-        language: 'java',
+        language: 'javascript',
         theme: 'vs',
         automaticLayout: true,
-        fixedOverflowWidgets: true, 
+        fixedOverflowWidgets: true, // 必须：防止提示框被截断
+        suggestOnTriggerCharacters: true, // 必须：输入 . 时触发提示
+        quickSuggestions: { other: true, comments: false, strings: true }, // 必须：开启快速提示
+        acceptSuggestionOnEnter: 'on',
+        parameterHints: { enabled: true },
+        wordBasedSuggestions: true,
         lineNumbers: 'on',
         renderLineHighlight: 'all',
         selectOnLineNumbers: true,
@@ -2527,8 +2707,19 @@ const loadRulesToCanvas = async (rules) => {
 }
 
 /* Monaco Editor 样式 */
-/* 确保 Monaco 的提示框在抽屉之上 */
-.monaco-aria-container, .editor-widget, .editor-container {
-  z-index: 5000 !important;
+/* 强制 Monaco 的所有浮动组件（提示框、搜索框）处于最顶层 */
+.monaco-editor .suggest-widget,
+.monaco-editor .suggest-details,
+.monaco-editor .context-view,
+.editor-widget,
+.editor-container,
+.monaco-aria-container {
+  z-index: 9999 !important;
+}
+
+/* 确保联想提示框的背景和边框可见 */
+.monaco-editor .suggest-widget {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+  border: 1px solid #dcdfe6 !important;
 }
 </style>
