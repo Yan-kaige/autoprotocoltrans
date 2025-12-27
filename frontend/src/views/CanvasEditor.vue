@@ -312,6 +312,39 @@
         <el-button type="primary" @click="saveConfig" :loading="saving">{{ currentConfigId ? '修改' : '保存' }}</el-button>
       </template>
     </el-dialog>
+
+    <!-- 右键菜单 -->
+    <div
+      v-if="contextMenuVisible"
+      class="context-menu"
+      :style="{ left: contextMenuX + 'px', top: contextMenuY + 'px' }"
+      @click.stop
+    >
+      <div
+        v-if="contextMenuType === 'node'"
+        class="context-menu-item"
+        @click="handleContextMenuEdit"
+      >
+        <el-icon><Edit /></el-icon>
+        <span>编辑</span>
+      </div>
+      <div
+        v-if="contextMenuType === 'edge'"
+        class="context-menu-item"
+        @click="handleContextMenuEdit"
+      >
+        <el-icon><Setting /></el-icon>
+        <span>编辑规则</span>
+      </div>
+      <div class="context-menu-divider" v-if="contextMenuType === 'node' || contextMenuType === 'edge'"></div>
+      <div
+        class="context-menu-item context-menu-item-danger"
+        @click="handleContextMenuDelete"
+      >
+        <el-icon><Delete /></el-icon>
+        <span>删除</span>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -320,7 +353,7 @@ import { ref, onMounted, nextTick, onUnmounted, watch, computed } from 'vue'
 import { Graph } from '@antv/x6'
 import { Selection } from '@antv/x6-plugin-selection'
 import { ElMessage } from 'element-plus'
-import { Document, Delete, Plus, ArrowLeft, ArrowRight, FullScreen, ZoomIn, ZoomOut, Search, Check } from '@element-plus/icons-vue'
+import { Document, Delete, Plus, ArrowLeft, ArrowRight, FullScreen, ZoomIn, ZoomOut, Search, Check, Edit, Setting } from '@element-plus/icons-vue'
 import { transformV2Api, configApi, dictionaryApi, functionApi } from '../api'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -337,6 +370,13 @@ const includeXmlDeclaration = ref(false) // 是否包含XML声明
 const graphContainer = ref(null)
 const canvasPanel = ref(null)
 let graph = null
+
+// 右键菜单相关
+const contextMenuVisible = ref(false)
+const contextMenuX = ref(0)
+const contextMenuY = ref(0)
+const contextMenuType = ref('') // 'node' 或 'edge'
+let contextMenuTarget = null // 当前右键点击的目标（节点或边）
 let nodeCounter = 0
 let autoLayoutCount = 0 // 用于双击排版的计数器
 
@@ -445,6 +485,9 @@ const handleWindowResize = () => {
 }
 
 onMounted(() => {
+  // 监听文档点击事件，关闭右键菜单
+  document.addEventListener('click', handleDocumentClick)
+  
   nextTick(() => {
     initGraph()
     // 加载字典列表和函数列表
@@ -483,6 +526,7 @@ watch([sourcePanelCollapsed, previewPanelCollapsed], () => {
 onUnmounted(() => {
   if (keyDownHandler) window.removeEventListener('keydown', keyDownHandler)
   window.removeEventListener('resize', handleWindowResize)
+  document.removeEventListener('click', handleDocumentClick)
   if (resizeObserver) {
     resizeObserver.disconnect()
     resizeObserver = null
@@ -679,6 +723,36 @@ const initGraph = () => {
   graph.on('cell:unselected', ({ cell }) => {
     // 恢复所有边的样式
     restoreAllEdges()
+  })
+  
+  // --- 右键菜单功能 ---
+  // 监听节点的右键点击事件
+  graph.on('node:contextmenu', ({ node, e }) => {
+    e.preventDefault()
+    e.stopPropagation()
+    
+    contextMenuTarget = node
+    contextMenuType.value = 'node'
+    contextMenuX.value = e.clientX
+    contextMenuY.value = e.clientY
+    contextMenuVisible.value = true
+  })
+  
+  // 监听边的右键点击事件
+  graph.on('edge:contextmenu', ({ edge, e }) => {
+    e.preventDefault()
+    e.stopPropagation()
+    
+    contextMenuTarget = edge
+    contextMenuType.value = 'edge'
+    contextMenuX.value = e.clientX
+    contextMenuY.value = e.clientY
+    contextMenuVisible.value = true
+  })
+  
+  // 点击其他地方时关闭菜单
+  graph.on('blank:click', () => {
+    contextMenuVisible.value = false
   })
 
   keyDownHandler = (e) => {
@@ -1379,6 +1453,45 @@ const zoomToFit = () => {
     type: 'success',
     duration: 1000
   })
+}
+
+// --- 右键菜单处理函数 ---
+const handleContextMenuEdit = () => {
+  if (!contextMenuTarget) return
+  
+  if (contextMenuType.value === 'node') {
+    // 编辑节点
+    openNodeEditDialog(contextMenuTarget)
+  } else if (contextMenuType.value === 'edge') {
+    // 编辑边（规则）
+    openEdgeConfig(contextMenuTarget)
+  }
+  
+  contextMenuVisible.value = false
+}
+
+const handleContextMenuDelete = () => {
+  if (!contextMenuTarget || !graph) return
+  
+  if (contextMenuType.value === 'node') {
+    // 删除节点（会同时删除相关的边）
+    graph.removeCells([contextMenuTarget])
+    updateMappedPaths()
+    nextTick(() => updatePreview())
+  } else if (contextMenuType.value === 'edge') {
+    // 删除边
+    graph.removeCells([contextMenuTarget])
+    nextTick(() => updatePreview())
+  }
+  
+  contextMenuVisible.value = false
+}
+
+// 监听点击事件，关闭右键菜单
+const handleDocumentClick = (e) => {
+  if (contextMenuVisible.value) {
+    contextMenuVisible.value = false
+  }
 }
 
 // 放大画布
@@ -2197,5 +2310,46 @@ const loadRulesToCanvas = async (rules) => {
 :deep(.x6-edge-selected) path {
   stroke: #ff4d4f !important;
   stroke-width: 2px !important;
+}
+
+/* 右键菜单样式 */
+.context-menu {
+  position: fixed;
+  background-color: #fff;
+  border: 1px solid #e4e7ed;
+  border-radius: 4px;
+  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+  padding: 4px 0;
+  z-index: 9999;
+  min-width: 120px;
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #606266;
+  transition: background-color 0.2s;
+}
+
+.context-menu-item:hover {
+  background-color: #f5f7fa;
+}
+
+.context-menu-item-danger {
+  color: #f56c6c;
+}
+
+.context-menu-item-danger:hover {
+  background-color: #fef0f0;
+}
+
+.context-menu-divider {
+  height: 1px;
+  background-color: #e4e7ed;
+  margin: 4px 0;
 }
 </style>
