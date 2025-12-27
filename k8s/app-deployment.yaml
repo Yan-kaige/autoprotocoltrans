@@ -18,7 +18,7 @@ spec:
       containers:
       - name: app
         # 替换为您的镜像仓库地址和标签
-        image: autoprotocoltrans:latest
+        image: kaige111/autoprotocoltrans:latest
         # 或者使用远程仓库
         # image: your-registry/autoprotocoltrans:latest
         imagePullPolicy: IfNotPresent
