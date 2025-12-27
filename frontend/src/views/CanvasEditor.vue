@@ -35,9 +35,19 @@
           />
           <el-divider />
           <div class="tree-tip">拖拽或双击字段到画布（也可在画布上直接点击"添加节点"按钮）</div>
+          <el-input
+              v-model="searchKeyword"
+              placeholder="搜索字段名..."
+              clearable
+              style="margin-bottom: 10px;"
+          >
+            <template #prefix>
+              <el-icon><Search /></el-icon>
+            </template>
+          </el-input>
           <el-tree
               ref="sourceTreeRef"
-              :data="sourceTreeData"
+              :data="filteredSourceTreeData"
               :props="treeProps"
               node-key="path"
               :default-expand-all="true"
@@ -302,17 +312,18 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, onUnmounted, watch } from 'vue'
+import { ref, onMounted, nextTick, onUnmounted, watch, computed } from 'vue'
 import { Graph } from '@antv/x6'
 import { Selection } from '@antv/x6-plugin-selection'
 import { ElMessage } from 'element-plus'
-import { Document, Delete, Plus, ArrowLeft, ArrowRight, FullScreen, ZoomIn, ZoomOut } from '@element-plus/icons-vue'
+import { Document, Delete, Plus, ArrowLeft, ArrowRight, FullScreen, ZoomIn, ZoomOut, Search } from '@element-plus/icons-vue'
 import { transformV2Api, configApi, dictionaryApi, functionApi } from '../api'
 import { useRoute, useRouter } from 'vue-router'
 
 // --- 状态变量 ---
 const sourceJson = ref('')
 const sourceTreeData = ref([])
+const searchKeyword = ref('') // 搜索关键词
 const sourceProtocol = ref('JSON') // 源协议类型：JSON 或 XML
 const targetProtocol = ref('JSON') // 目标协议类型：JSON 或 XML
 const sourcePanelCollapsed = ref(false) // 左侧面板折叠状态，默认展开
@@ -728,6 +739,73 @@ const convertToTreeData = (obj, prefix, pathPrefix) => {
   }
   return { label: 'Source Root', path: pathPrefix, type: typeof obj, children: traverse(obj) }
 }
+
+// --- 搜索过滤逻辑 ---
+/**
+ * 递归过滤树节点
+ * @param {Array} nodes - 节点数组
+ * @param {string} keyword - 搜索关键词
+ * @returns {Array} 过滤后的节点数组
+ */
+const filterTreeNodes = (nodes, keyword) => {
+  if (!keyword || !keyword.trim()) {
+    return nodes
+  }
+  
+  const lowerKeyword = keyword.toLowerCase().trim()
+  
+  const filterNode = (node) => {
+    // 检查当前节点是否匹配
+    const labelMatch = node.label && node.label.toLowerCase().includes(lowerKeyword)
+    const pathMatch = node.path && node.path.toLowerCase().includes(lowerKeyword)
+    
+    // 递归过滤子节点
+    let filteredChildren = []
+    if (node.children && node.children.length > 0) {
+      filteredChildren = node.children
+        .map(filterNode)
+        .filter(child => child !== null)
+    }
+    
+    // 如果当前节点匹配，或者有子节点匹配，则保留该节点
+    if (labelMatch || pathMatch || filteredChildren.length > 0) {
+      return {
+        ...node,
+        children: filteredChildren.length > 0 ? filteredChildren : node.children
+      }
+    }
+    
+    return null
+  }
+  
+  return nodes
+    .map(filterNode)
+    .filter(node => node !== null)
+}
+
+// 过滤后的源数据树
+const filteredSourceTreeData = computed(() => {
+  if (!searchKeyword.value || !searchKeyword.value.trim()) {
+    return sourceTreeData.value
+  }
+  
+  if (!sourceTreeData.value || sourceTreeData.value.length === 0) {
+    return []
+  }
+  
+  // 对每个根节点进行过滤
+  return sourceTreeData.value.map(rootNode => {
+    if (!rootNode.children || rootNode.children.length === 0) {
+      return rootNode
+    }
+    
+    const filteredChildren = filterTreeNodes(rootNode.children, searchKeyword.value)
+    return {
+      ...rootNode,
+      children: filteredChildren
+    }
+  })
+})
 
 // --- 拖拽与双击逻辑 ---
 let draggingData = null
