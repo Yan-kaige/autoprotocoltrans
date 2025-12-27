@@ -15,7 +15,7 @@
             <el-button
               text
               :icon="sourcePanelCollapsed ? ArrowRight : ArrowLeft"
-              @click="sourcePanelCollapsed = !sourcePanelCollapsed"
+              @click="toggleSourcePanel"
               class="collapse-btn"
             />
           </div>
@@ -80,7 +80,7 @@
             <el-button
               text
               :icon="previewPanelCollapsed ? ArrowLeft : ArrowRight"
-              @click="previewPanelCollapsed = !previewPanelCollapsed"
+              @click="togglePreviewPanel"
               class="collapse-btn"
             />
           </div>
@@ -354,79 +354,65 @@ const currentConfigEntity = ref(null) // 当前编辑的配置实体（包含名
 // 使用 ResizeObserver 监听画布容器大小变化
 let resizeObserver = null
 
+// 定义一个用于平滑缩放的工具函数
+// 添加标志防止无限循环
+let isResizing = false
 
-
-onMounted(() => {
+const syncGraphResize = () => {
+  if (!graph || !graphContainer.value || isResizing) return
+  
+  isResizing = true
+  // 使用 nextTick 确保 DOM 状态已同步
   nextTick(() => {
-    initGraph()
-    // 加载字典列表和函数列表
-    loadDictionaryList()
-    loadAvailableFunctions()
-    // 检查URL参数，如果是编辑模式则加载配置
-    const configId = route.query.configId
-    if (configId) {
-      currentConfigId.value = configId
-      loadConfigToCanvas(Number(configId))
-    }
-    
-    // 设置 ResizeObserver 监听画布容器大小变化
-    // 同时监听 canvas-panel 和 graphContainer
-    if (graphContainer.value && window.ResizeObserver) {
-      resizeObserver = new ResizeObserver((entries) => {
-        if (graph && entries.length > 0) {
-          // 使用 requestAnimationFrame 确保在浏览器重绘后调用
-          requestAnimationFrame(() => {
-            if (graphContainer.value) {
-              const rect = graphContainer.value.getBoundingClientRect()
-              if (rect.width > 0 && rect.height > 0) {
-                graph.resize(rect.width, rect.height)
-              }
-            }
-          })
-        }
-      })
-      // 监听 graphContainer 本身的大小变化
-      resizeObserver.observe(graphContainer.value)
-      // 如果 canvasPanel 存在，也监听它
-      if (canvasPanel.value) {
-        resizeObserver.observe(canvasPanel.value)
+    try {
+      const rect = graphContainer.value.getBoundingClientRect()
+      if (rect.width > 0 && rect.height > 0) {
+        // 核心：先 resize，再强制画布刷新
+        graph.resize(rect.width, rect.height)
       }
+    } finally {
+      // 使用 setTimeout 确保在下一个事件循环中重置标志
+      setTimeout(() => {
+        isResizing = false
+      }, 0)
     }
-    
-    // 监听窗口大小变化
-    window.addEventListener('resize', handleWindowResize)
   })
-})
+}
 
-// 监听面板折叠状态变化，动态调整画布大小
-watch([sourcePanelCollapsed, previewPanelCollapsed], () => {
-  // 等待 CSS 过渡动画完成（300ms）后再调整画布大小
+// 创建一个通用的强制重绘函数（保留作为备用）
+const forceUpdateCanvas = () => {
+  syncGraphResize()
+  if (graph) {
+    graph.centerContent()
+  }
+}
+
+// 修改折叠/展开的点击逻辑
+// 手动在更新状态后，利用一个微小的延迟（setTimeout 0）来跨过浏览器的重绘周期
+const toggleSourcePanel = () => {
+  sourcePanelCollapsed.value = !sourcePanelCollapsed.value
+  // 使用 setTimeout 确保在 DOM 彻底渲染后执行
   setTimeout(() => {
-    if (graph && graphContainer.value) {
-      // 使用 requestAnimationFrame 确保在浏览器重绘后调用
-      requestAnimationFrame(() => {
-        // 再次使用 requestAnimationFrame 确保布局已完成
-        requestAnimationFrame(() => {
-          const rect = graphContainer.value.getBoundingClientRect()
-          if (rect.width > 0 && rect.height > 0) {
-            graph.resize(rect.width, rect.height)
-          }
-        })
-      })
+    syncGraphResize()
+    if (graph) {
+      graph.centerContent()
     }
-  }, 320) // 稍微延长一点时间，确保过渡完成
-})
+  }, 0)
+}
+
+const togglePreviewPanel = () => {
+  previewPanelCollapsed.value = !previewPanelCollapsed.value
+  setTimeout(() => {
+    syncGraphResize()
+    if (graph) {
+      graph.centerContent()
+    }
+  }, 0)
+}
 
 // 窗口大小变化时也调整画布大小
 const handleWindowResize = () => {
-  if (graph && graphContainer.value) {
-    requestAnimationFrame(() => {
-      const rect = graphContainer.value.getBoundingClientRect()
-      if (rect.width > 0 && rect.height > 0) {
-        graph.resize(rect.width, rect.height)
-      }
-    })
-  }
+  syncGraphResize()
 }
 
 onMounted(() => {
@@ -443,31 +429,25 @@ onMounted(() => {
     }
     
     // 设置 ResizeObserver 监听画布容器大小变化
-    // 同时监听 canvas-panel 和 graphContainer
-    if (graphContainer.value && window.ResizeObserver) {
-      resizeObserver = new ResizeObserver((entries) => {
-        if (graph && entries.length > 0) {
-          // 使用 requestAnimationFrame 确保在浏览器重绘后调用
-          requestAnimationFrame(() => {
-            if (graphContainer.value) {
-              const rect = graphContainer.value.getBoundingClientRect()
-              if (rect.width > 0 && rect.height > 0) {
-                graph.resize(rect.width, rect.height)
-              }
-            }
-          })
-        }
+    // 这里的回调主要处理非折叠引起的尺寸变化（如窗口缩放）
+    if (canvasPanel.value && window.ResizeObserver) {
+      resizeObserver = new ResizeObserver(() => {
+        syncGraphResize()
       })
-      // 监听 graphContainer 本身的大小变化
-      resizeObserver.observe(graphContainer.value)
-      // 如果 canvasPanel 存在，也监听它
-      if (canvasPanel.value) {
-        resizeObserver.observe(canvasPanel.value)
-      }
+      resizeObserver.observe(canvasPanel.value)
     }
     
     // 监听窗口大小变化
     window.addEventListener('resize', handleWindowResize)
+  })
+})
+
+// 注意：现在不再需要 watch，因为我们在点击按钮时直接调用 forceUpdateCanvas
+// 但保留 watch 作为备用，以防其他地方直接修改了 collapsed 状态
+watch([sourcePanelCollapsed, previewPanelCollapsed], () => {
+  // 延迟一点确保 DOM 更新完成
+  nextTick(() => {
+    forceUpdateCanvas()
   })
 })
 
@@ -1683,7 +1663,7 @@ const loadRulesToCanvas = async (rules) => {
   width: 300px; 
   display: flex; 
   flex-direction: column; 
-  transition: width 0.3s ease;
+  /* transition: width 0.3s ease; 已删除，改用 JS 控制 */
   border: 1px solid #ddd;
   border-radius: 4px;
   background-color: #fff;
@@ -1699,28 +1679,38 @@ const loadRulesToCanvas = async (rules) => {
 }
 .canvas-panel { 
   flex: 1; 
-  min-width: 0; 
+  min-width: 0; /* 必须有，否则 flex 不会自动收缩 */
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* 极其重要 */
+  position: relative; /* 为子元素提供基准 */
   border: 1px solid #ddd; 
   border-radius: 4px; 
-  overflow: hidden; 
-  position: relative; 
-  display: flex; 
-  flex-direction: column; 
 }
-.canvas-toolbar { padding: 10px; border-bottom: 1px solid #ddd; background-color: #fff; }
+.canvas-toolbar { 
+  padding: 10px; 
+  border-bottom: 1px solid #ddd; 
+  background-color: #fff; 
+  flex-shrink: 0; /* 固定高度，不参与 flex 伸缩 */
+  height: 40px; /* 明确高度 */
+}
 .graph-container { 
-  flex: 1; 
-  width: 100%; 
-  height: 100%;
+  width: 100% !important;
+  height: 100% !important;
+  position: absolute; /* 脱离 flex 文档流，防止撑开父容器 */
+  top: 40px; /* 留出 canvas-toolbar 的高度 */
+  left: 0;
+  right: 0;
+  bottom: 0;
   background-color: #fafafa; 
-  position: relative;
   overflow: hidden;
 }
 .preview-panel { 
   width: 350px; 
   display: flex; 
   flex-direction: column; 
-  transition: width 0.3s ease;
+  /* transition: width 0.3s ease; 已删除，改用 JS 控制 */
   border: 1px solid #ddd;
   border-radius: 4px;
   background-color: #fff;
