@@ -216,10 +216,22 @@
         
         <!-- Groovy脚本配置 -->
         <el-form-item v-show="currentEdgeConfig.transformType === 'GROOVY'" label="Groovy脚本">
-          <div 
-            id="groovy-monaco-editor" 
-            style="height: 400px; width: 100%; border: 1px solid #dcdfe6; border-radius: 4px; pointer-events: auto !important;"
-          ></div>
+          <div style="position: relative;">
+            <div 
+              id="groovy-monaco-editor" 
+              :class="{ 'groovy-editor-fullscreen': groovyEditorFullscreen }"
+              style="height: 400px; width: 100%; border: 1px solid #dcdfe6; border-radius: 4px; pointer-events: auto !important;"
+            ></div>
+            <el-button
+              text
+              circle
+              size="small"
+              @click="toggleGroovyEditorFullscreen"
+              style="position: absolute; top: 8px; right: 8px; z-index: 100; background: rgba(255, 255, 255, 0.9); box-shadow: 0 2px 4px rgba(0,0,0,0.1);"
+            >
+              <el-icon><Close v-if="groovyEditorFullscreen" /><FullScreen v-else /></el-icon>
+            </el-button>
+          </div>
           <div style="font-size: 12px; color: #999; margin-top: 5px;">
             <div><strong>变量说明：</strong></div>
             <div>• input: 输入的字段值（单个值或List）</div>
@@ -366,7 +378,7 @@ import { Graph } from '@antv/x6'
 import { Selection } from '@antv/x6-plugin-selection'
 import { MiniMap } from '@antv/x6-plugin-minimap'
 import { ElMessage } from 'element-plus'
-import { Document, Delete, Plus, ArrowLeft, ArrowRight, FullScreen, ZoomIn, ZoomOut, Search, Check, Edit, Setting } from '@element-plus/icons-vue'
+import { Document, Delete, Plus, ArrowLeft, ArrowRight, FullScreen, ZoomIn, ZoomOut, Search, Check, Edit, Setting, Close } from '@element-plus/icons-vue'
 import { transformV2Api, configApi, dictionaryApi, functionApi } from '../api'
 import { useRoute, useRouter } from 'vue-router'
 import loader from '@monaco-editor/loader'
@@ -575,6 +587,7 @@ let keyDownHandler = null
 const treeProps = { children: 'children', label: 'label' }
 const edgeConfigVisible = ref(false)
 const nodeEditVisible = ref(false)
+const groovyEditorFullscreen = ref(false) // Groovy 编辑器全屏状态
 let currentNodeToEdit = null
 const currentNodeEdit = ref({ fieldName: '', path: '' })
 const currentNodeEditType = ref('') // 'source' 或 'target'
@@ -808,6 +821,19 @@ const initGroovyEditor = async () => {
 const handleDrawerOpened = () => {
   if (currentEdgeConfig.value.transformType === 'GROOVY') {
     initGroovyEditor()
+  }
+}
+
+// Groovy 编辑器全屏切换
+const toggleGroovyEditorFullscreen = () => {
+  groovyEditorFullscreen.value = !groovyEditorFullscreen.value
+  if (groovyEditor && groovyEditorFullscreen.value) {
+    // 全屏时，延迟一下确保 DOM 更新完成
+    nextTick(() => {
+      setTimeout(() => {
+        groovyEditor.layout()
+      }, 100)
+    })
   }
 }
 
@@ -2721,5 +2747,27 @@ const loadRulesToCanvas = async (rules) => {
 .monaco-editor .suggest-widget {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
   border: 1px solid #dcdfe6 !important;
+}
+
+/* Groovy 编辑器全屏模式 */
+.groovy-editor-fullscreen {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 10000 !important;
+  background: #fff;
+  border: none !important;
+  border-radius: 0 !important;
+}
+
+.groovy-editor-fullscreen #groovy-monaco-editor {
+  height: 100vh !important;
+  width: 100vw !important;
+  border: none !important;
+  border-radius: 0 !important;
 }
 </style>
