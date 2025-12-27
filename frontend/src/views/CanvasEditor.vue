@@ -169,8 +169,16 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="edgeConfigVisible" title="配置转换规则" width="600px">
-      <el-form :model="currentEdgeConfig" label-width="120px">
+    <el-drawer
+      v-model="edgeConfigVisible"
+      title="配置转换规则"
+      size="50%"
+      :append-to-body="true"
+      :trap-focus="false"
+      :destroy-on-close="true"
+      @opened="handleDrawerOpened"
+    >
+      <el-form :model="currentEdgeConfig" label-width="120px" style="padding: 20px;">
         <el-form-item label="源路径"><el-input v-model="currentEdgeConfig.sourcePath" disabled /></el-form-item>
         <el-form-item label="目标路径"><el-input v-model="currentEdgeConfig.targetPath" disabled /></el-form-item>
         <el-form-item label="映射类型">
@@ -207,17 +215,19 @@
         </el-form-item>
         
         <!-- Groovy脚本配置 -->
-        <el-form-item v-if="currentEdgeConfig.transformType === 'GROOVY'" label="Groovy脚本">
-          <el-input
-            v-model="currentEdgeConfig.transformConfig.groovyScript"
-            type="textarea"
-            :rows="8"
-            placeholder="输入Groovy脚本代码&#10;&#10;示例1 - 去掉邮箱@后面的部分:&#10;input?.toString()?.split('@')?[0] ?: ''&#10;&#10;示例2 - 字符串拼接(多对1):&#10;def parts = input as List; return (parts[0] ?: '') + ' ' + (parts[1] ?: '')&#10;&#10;示例3 - 取前三位转为数字:&#10;String str = input?.toString() ?: ''; return Integer.parseInt(str.length() >= 3 ? str.substring(0, 3) : str)&#10;&#10;可用变量: input(输入值), inputs(List类型时的别名)"
-          />
+        <el-form-item v-show="currentEdgeConfig.transformType === 'GROOVY'" label="Groovy脚本">
+          <div 
+            id="groovy-monaco-editor" 
+            style="height: 400px; width: 100%; border: 1px solid #dcdfe6; border-radius: 4px; pointer-events: auto !important;"
+          ></div>
           <div style="font-size: 12px; color: #999; margin-top: 5px;">
             <div><strong>变量说明：</strong></div>
             <div>• input: 输入的字段值（单个值或List）</div>
             <div>• inputs: 当输入是List时的别名</div>
+            <div style="margin-top: 5px;"><strong>示例：</strong></div>
+            <div>• 去掉邮箱@后面的部分: <code>input?.toString()?.split('@')?[0] ?: ''</code></div>
+            <div>• 字符串拼接(多对1): <code>def parts = input as List; return (parts[0] ?: '') + ' ' + (parts[1] ?: '')</code></div>
+            <div>• 取前三位转为数字: <code>String str = input?.toString() ?: ''; return Integer.parseInt(str.length() >= 3 ? str.substring(0, 3) : str)</code></div>
           </div>
         </el-form-item>
         
@@ -287,10 +297,12 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="edgeConfigVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveEdgeConfig">确定</el-button>
+        <div style="flex: auto; padding: 20px;">
+          <el-button @click="edgeConfigVisible = false">取消</el-button>
+          <el-button type="primary" @click="saveEdgeConfig">确定保存配置</el-button>
+        </div>
       </template>
-    </el-dialog>
+    </el-drawer>
 
     <!-- 保存/修改配置对话框 -->
     <el-dialog v-model="saveConfigVisible" :title="currentConfigId ? '修改配置' : '保存配置'" width="500px">
@@ -357,6 +369,7 @@ import { ElMessage } from 'element-plus'
 import { Document, Delete, Plus, ArrowLeft, ArrowRight, FullScreen, ZoomIn, ZoomOut, Search, Check, Edit, Setting } from '@element-plus/icons-vue'
 import { transformV2Api, configApi, dictionaryApi, functionApi } from '../api'
 import { useRoute, useRouter } from 'vue-router'
+import loader from '@monaco-editor/loader'
 
 // --- 状态变量 ---
 const sourceJson = ref('')
@@ -372,6 +385,7 @@ const graphContainer = ref(null)
 const canvasPanel = ref(null)
 let graph = null
 let minimap = null // 小地图实例
+let groovyEditor = null // Monaco Editor 实例
 
 // 右键菜单相关
 const contextMenuVisible = ref(false)
@@ -495,6 +509,7 @@ onMounted(() => {
     // 加载字典列表和函数列表
     loadDictionaryList()
     loadAvailableFunctions()
+    // 注意：Monaco Editor 将在对话框打开且类型为 GROOVY 时初始化
     // 检查URL参数，如果是编辑模式则加载配置
     const configId = route.query.configId
     if (configId) {
@@ -525,6 +540,13 @@ watch([sourcePanelCollapsed, previewPanelCollapsed], () => {
   })
 })
 
+// 监听类型切换，如果是手动切换到 GROOVY，也调用初始化
+watch(() => currentEdgeConfig.value.transformType, (newType) => {
+  if (newType === 'GROOVY' && edgeConfigVisible.value) {
+    nextTick(() => initGroovyEditor())
+  }
+})
+
 onUnmounted(() => {
   if (keyDownHandler) window.removeEventListener('keydown', keyDownHandler)
   window.removeEventListener('resize', handleWindowResize)
@@ -532,6 +554,10 @@ onUnmounted(() => {
   if (resizeObserver) {
     resizeObserver.disconnect()
     resizeObserver = null
+  }
+  if (groovyEditor) {
+    groovyEditor.dispose()
+    groovyEditor = null
   }
   if (minimap) {
     if (minimap.container && minimap.container.parentNode) {
@@ -544,6 +570,67 @@ onUnmounted(() => {
     graph = null
   }
 })
+
+// 初始化 Groovy 编辑器（Monaco Editor）
+const initGroovyEditor = async () => {
+  if (groovyEditor) {
+    groovyEditor.dispose()
+    groovyEditor = null
+  }
+
+  setTimeout(async () => {
+    const domElement = document.getElementById('groovy-monaco-editor')
+    if (!domElement) {
+      console.warn('Groovy 编辑器容器未找到')
+      return
+    }
+
+    try {
+      const monaco = await loader.init()
+      groovyEditor = monaco.editor.create(domElement, {
+        value: currentEdgeConfig.value.transformConfig?.groovyScript || 'return input',
+        language: 'java',
+        theme: 'vs',
+        automaticLayout: true,
+        fixedOverflowWidgets: true, 
+        lineNumbers: 'on',
+        renderLineHighlight: 'all',
+        selectOnLineNumbers: true,
+        readOnly: false,
+        accessibilitySupport: 'on'
+      })
+
+      groovyEditor.onDidChangeModelContent(() => {
+        if (groovyEditor) {
+          const val = groovyEditor.getValue()
+          if (!currentEdgeConfig.value.transformConfig) {
+            currentEdgeConfig.value.transformConfig = {}
+          }
+          currentEdgeConfig.value.transformConfig.groovyScript = val
+        }
+      })
+
+      domElement.addEventListener('mousedown', () => {
+        if (groovyEditor) {
+          groovyEditor.focus()
+        }
+      }, true)
+
+      groovyEditor.layout()
+      groovyEditor.focus()
+    } catch (e) {
+      console.error("Monaco load error:", e)
+    }
+  }, 400)
+}
+
+// 抽屉打开后的回调
+const handleDrawerOpened = () => {
+  if (currentEdgeConfig.value.transformType === 'GROOVY') {
+    initGroovyEditor()
+  }
+}
+
 
 const initGraph = () => {
   if (!graphContainer.value) return
@@ -812,14 +899,40 @@ const initGraph = () => {
   })
 
   keyDownHandler = (e) => {
-    if (e.key !== 'Delete' && e.key !== 'Backspace') return
     const active = document.activeElement
-    if (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA') return
+    
+    // 严谨判定：是否在 Monaco 的文本输入区
+    const isMonacoActive = 
+      active.closest('.monaco-editor') || 
+      active.classList.contains('monaco-mouse-cursor-text') ||
+      active.closest('.monaco-aria-container')
 
-    const selected = graph.getSelectedCells()
-    if (selected.length > 0) {
+    // 发现输入焦点，立即交还控制权给浏览器
+    if (isMonacoActive || active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable) {
+      return
+    }
+
+    // --- 以下才是画布操作逻辑 ---
+    // Ctrl + Z (撤销)
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
       e.preventDefault()
-      graph.removeCells(selected)
+      undo()
+      return
+    }
+    // Ctrl + Y 或 Ctrl + Shift + Z (重做)
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+      e.preventDefault()
+      redo()
+      return
+    }
+
+    // 原有的 Delete 逻辑（只在画布上生效）
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      const selected = graph.getSelectedCells()
+      if (selected.length > 0) {
+        e.preventDefault()
+        graph.removeCells(selected)
+      }
     }
   }
   window.addEventListener('keydown', keyDownHandler)
@@ -1642,6 +1755,7 @@ const openEdgeConfig = (edge) => {
   }
   
   edgeConfigVisible.value = true
+  // 这里删掉 initGroovyEditor 的手动调用！交给上面的 @opened 事件
 }
 
 let currentEdge = null
@@ -1656,6 +1770,7 @@ const onTransformTypeChange = () => {
     currentEdgeConfig.value.dictionaryId = null
     currentEdgeConfig.value.dictionaryDirection = false
   }
+  
 }
 
 const onDictionaryChange = () => {
@@ -1724,8 +1839,10 @@ const saveEdgeConfig = () => {
       config.function = 'upperCase' // 默认值
     }
   } else if (currentEdgeConfig.value.transformType === 'GROOVY') {
-    // Groovy脚本：确保groovyScript字段存在
-    if (!config.groovyScript) {
+    // Groovy脚本：从编辑器获取内容
+    if (groovyEditor) {
+      config.groovyScript = groovyEditor.getValue() || 'return input'
+    } else if (!config.groovyScript) {
       config.groovyScript = 'return input'
     }
   } else if (currentEdgeConfig.value.transformType === 'DICTIONARY') {
@@ -2407,5 +2524,11 @@ const loadRulesToCanvas = async (rules) => {
   height: 1px;
   background-color: #e4e7ed;
   margin: 4px 0;
+}
+
+/* Monaco Editor 样式 */
+/* 确保 Monaco 的提示框在抽屉之上 */
+.monaco-aria-container, .editor-widget, .editor-container {
+  z-index: 5000 !important;
 }
 </style>
