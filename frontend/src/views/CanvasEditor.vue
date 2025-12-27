@@ -352,6 +352,7 @@
 import { ref, onMounted, nextTick, onUnmounted, watch, computed } from 'vue'
 import { Graph } from '@antv/x6'
 import { Selection } from '@antv/x6-plugin-selection'
+import { MiniMap } from '@antv/x6-plugin-minimap'
 import { ElMessage } from 'element-plus'
 import { Document, Delete, Plus, ArrowLeft, ArrowRight, FullScreen, ZoomIn, ZoomOut, Search, Check, Edit, Setting } from '@element-plus/icons-vue'
 import { transformV2Api, configApi, dictionaryApi, functionApi } from '../api'
@@ -370,6 +371,7 @@ const includeXmlDeclaration = ref(false) // 是否包含XML声明
 const graphContainer = ref(null)
 const canvasPanel = ref(null)
 let graph = null
+let minimap = null // 小地图实例
 
 // 右键菜单相关
 const contextMenuVisible = ref(false)
@@ -531,6 +533,12 @@ onUnmounted(() => {
     resizeObserver.disconnect()
     resizeObserver = null
   }
+  if (minimap) {
+    if (minimap.container && minimap.container.parentNode) {
+      minimap.container.parentNode.removeChild(minimap.container)
+    }
+    minimap = null
+  }
   if (graph) {
     graph.dispose()
     graph = null
@@ -587,6 +595,48 @@ const initGraph = () => {
       })
   )
 
+  // 初始化小地图（默认隐藏，当边数超过20时显示）
+  // 创建小地图容器（初始隐藏）
+  const minimapContainer = document.createElement('div')
+  minimapContainer.className = 'x6-minimap-container'
+  minimapContainer.style.cssText = `
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    width: 200px;
+    height: 160px;
+    border: 1px solid #e4e7ed;
+    border-radius: 4px;
+    background-color: #fff;
+    box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+    z-index: 100;
+    display: none;
+  `
+  graphContainer.value.appendChild(minimapContainer)
+  
+  minimap = new MiniMap({
+    container: minimapContainer,
+    width: 200,
+    height: 160,
+    padding: 10,
+  })
+  
+  graph.use(minimap)
+  
+  // 设置小地图位置（右下角）
+  const updateMinimapVisibility = () => {
+    if (!graph || !minimap || !minimapContainer) return
+    
+    const edges = graph.getEdges()
+    const shouldShow = edges.length > 20
+    
+    // 显示或隐藏小地图
+    minimapContainer.style.display = shouldShow ? 'block' : 'none'
+  }
+  
+  // 初始检查
+  updateMinimapVisibility()
+
   graph.on('node:dblclick', ({ node }) => {
     // 允许编辑源节点和目标节点
     const nodeType = node.getData()?.type
@@ -600,9 +650,13 @@ const initGraph = () => {
   })
 
   // 监听各种操作自动刷新预览
-  graph.on('edge:connected', () => nextTick(() => updatePreview()))
+  graph.on('edge:connected', () => {
+    updateMinimapVisibility() // 更新小地图显示状态
+    nextTick(() => updatePreview())
+  })
   graph.on('node:removed', () => {
     updateMappedPaths()
+    updateMinimapVisibility() // 更新小地图显示状态
     nextTick(() => updatePreview())
   })
   graph.on('edge:removed', ({ edge }) => {
@@ -610,12 +664,14 @@ const initGraph = () => {
     if (edge && edge.id) {
       edgeOriginalStyles.delete(edge.id)
     }
+    updateMinimapVisibility() // 更新小地图显示状态
     nextTick(() => updatePreview())
   })
   
   // 监听节点添加事件，更新映射状态
   graph.on('node:added', () => {
     updateMappedPaths()
+    updateMinimapVisibility() // 更新小地图显示状态
   })
   
   // --- 线条高亮功能 ---
