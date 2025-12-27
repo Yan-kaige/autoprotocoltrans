@@ -561,11 +561,124 @@ const initGraph = () => {
     updateMappedPaths()
     nextTick(() => updatePreview())
   })
-  graph.on('edge:removed', () => nextTick(() => updatePreview()))
+  graph.on('edge:removed', ({ edge }) => {
+    // 清理保存的样式
+    if (edge && edge.id) {
+      edgeOriginalStyles.delete(edge.id)
+    }
+    nextTick(() => updatePreview())
+  })
   
   // 监听节点添加事件，更新映射状态
   graph.on('node:added', () => {
     updateMappedPaths()
+  })
+  
+  // --- 线条高亮功能 ---
+  // 保存边的原始样式
+  const edgeOriginalStyles = new Map()
+  
+  // 高亮边
+  const highlightEdge = (edge) => {
+    if (!edge) return
+    
+    // 保存原始样式（如果还没有保存）
+    if (!edgeOriginalStyles.has(edge.id)) {
+      const attrs = edge.getAttrs()
+      edgeOriginalStyles.set(edge.id, {
+        stroke: attrs.line?.stroke || '#8f8f8f',
+        strokeWidth: attrs.line?.strokeWidth || 2
+      })
+    }
+    
+    // 高亮显示（加粗并改变颜色）
+    edge.setAttrs({
+      line: {
+        stroke: '#409eff', // 蓝色高亮
+        strokeWidth: 4 // 加粗
+      }
+    })
+  }
+  
+  // 恢复边的原始样式
+  const restoreEdge = (edge) => {
+    if (!edge) return
+    
+    const originalStyle = edgeOriginalStyles.get(edge.id)
+    if (originalStyle) {
+      edge.setAttrs({
+        line: {
+          stroke: originalStyle.stroke,
+          strokeWidth: originalStyle.strokeWidth
+        }
+      })
+    } else {
+      // 如果没有保存的样式，使用默认样式
+      edge.setAttrs({
+        line: {
+          stroke: '#8f8f8f',
+          strokeWidth: 2
+        }
+      })
+    }
+  }
+  
+  // 高亮与节点相关的所有边
+  const highlightNodeEdges = (node) => {
+    if (!node) return
+    
+    const nodeId = node.id
+    const allEdges = graph.getEdges()
+    
+    allEdges.forEach(edge => {
+      const sourceCellId = edge.getSourceCellId()
+      const targetCellId = edge.getTargetCellId()
+      
+      // 如果边连接到该节点，则高亮
+      if (sourceCellId === nodeId || targetCellId === nodeId) {
+        highlightEdge(edge)
+      }
+    })
+  }
+  
+  // 恢复所有边的原始样式
+  const restoreAllEdges = () => {
+    const allEdges = graph.getEdges()
+    allEdges.forEach(edge => {
+      restoreEdge(edge)
+    })
+  }
+  
+  // 监听边的鼠标悬停事件
+  graph.on('edge:mouseenter', ({ edge }) => {
+    highlightEdge(edge)
+  })
+  
+  graph.on('edge:mouseleave', ({ edge }) => {
+    // 只有在没有选中节点时才恢复（避免与选中高亮冲突）
+    const selectedCells = graph.getSelectedCells()
+    const hasSelectedNode = selectedCells.some(cell => cell.isNode())
+    
+    if (!hasSelectedNode) {
+      restoreEdge(edge)
+    }
+  })
+  
+  // 监听节点选中事件
+  graph.on('cell:selected', ({ cell }) => {
+    if (cell.isNode()) {
+      // 高亮与选中节点相关的所有边
+      highlightNodeEdges(cell)
+    } else if (cell.isEdge()) {
+      // 如果选中的是边，也高亮该边
+      highlightEdge(cell)
+    }
+  })
+  
+  // 监听节点取消选中事件
+  graph.on('cell:unselected', ({ cell }) => {
+    // 恢复所有边的样式
+    restoreAllEdges()
   })
 
   keyDownHandler = (e) => {
