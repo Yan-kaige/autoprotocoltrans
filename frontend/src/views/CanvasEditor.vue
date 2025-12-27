@@ -70,6 +70,10 @@
               <el-icon><Plus /></el-icon>
               添加节点
             </el-button>
+            <el-button size="small" @click="zoomToFit">
+              <el-icon><FullScreen /></el-icon>
+              自适应视野
+            </el-button>
           </div>
           <div ref="graphContainer" class="graph-container"></div>
         </div>
@@ -294,7 +298,7 @@ import { ref, onMounted, nextTick, onUnmounted, watch } from 'vue'
 import { Graph } from '@antv/x6'
 import { Selection } from '@antv/x6-plugin-selection'
 import { ElMessage } from 'element-plus'
-import { Document, Delete, Plus, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
+import { Document, Delete, Plus, ArrowLeft, ArrowRight, FullScreen } from '@element-plus/icons-vue'
 import { transformV2Api, configApi, dictionaryApi, functionApi } from '../api'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -394,8 +398,9 @@ const toggleSourcePanel = () => {
   // 使用 setTimeout 确保在 DOM 彻底渲染后执行
   setTimeout(() => {
     syncGraphResize()
+    // 侧边栏切换后，不仅居中，还自动适应一下视野
     if (graph) {
-      graph.centerContent()
+      zoomToFit()
     }
   }, 0)
 }
@@ -404,8 +409,9 @@ const togglePreviewPanel = () => {
   previewPanelCollapsed.value = !previewPanelCollapsed.value
   setTimeout(() => {
     syncGraphResize()
+    // 侧边栏切换后，不仅居中，还自动适应一下视野
     if (graph) {
-      graph.centerContent()
+      zoomToFit()
     }
   }, 0)
 }
@@ -971,6 +977,27 @@ const addNodePair = () => {
   autoLayoutCount++
   
   ElMessage.success('已添加新节点，可以双击节点进行编辑')
+}
+
+// 一键自适应视野
+const zoomToFit = () => {
+  if (!graph) return
+  
+  graph.zoomToFit({
+    padding: 40,        // 画布四周留白，防止节点紧贴边缘
+    maxScale: 1,        // 最大缩放级别为 1，防止少量节点时被放得太大
+    minScale: 0.2,      // 最小缩放级别，防止节点太多时缩得太小看不清
+    preserveAspectRatio: true // 保持纵横比
+  })
+  
+  // 缩放后自动居中
+  graph.centerContent()
+  
+  ElMessage({
+    message: '视野已自动调整',
+    type: 'success',
+    duration: 1000
+  })
 }
 
 // --- 配置与转换逻辑 ---
@@ -1694,6 +1721,9 @@ const loadRulesToCanvas = async (rules) => {
   background-color: #fff; 
   flex-shrink: 0; /* 固定高度，不参与 flex 伸缩 */
   height: 40px; /* 明确高度 */
+  display: flex;
+  gap: 10px; /* 按钮之间的间距 */
+  align-items: center;
 }
 .graph-container { 
   width: 100% !important;
