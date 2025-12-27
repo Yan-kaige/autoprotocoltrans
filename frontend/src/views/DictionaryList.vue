@@ -4,11 +4,7 @@
       <template #header>
         <div class="card-header">
           <span>字典管理</span>
-          <div>
-            <el-button @click="goToConfig" style="margin-right: 10px">配置管理</el-button>
-            <el-button @click="goToFunction" style="margin-right: 10px">函数管理</el-button>
-            <el-button type="primary" @click="openDictionaryDialog">新建字典</el-button>
-          </div>
+          <el-button type="primary" @click="openDictionaryDialog">新建字典</el-button>
         </div>
       </template>
 
@@ -82,12 +78,9 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete } from '@element-plus/icons-vue'
 import { dictionaryApi } from '../api'
-
-const router = useRouter()
 
 const dictionaryList = ref([])
 const loading = ref(false)
@@ -234,14 +227,6 @@ const saveDictionary = async () => {
   } finally {
     saving.value = false
   }
-}
-
-const goToConfig = () => {
-  router.push({ path: '/config' })
-}
-
-const goToFunction = () => {
-  router.push({ path: '/function' })
 }
 
 const deleteDictionary = async (id) => {

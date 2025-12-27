@@ -4,18 +4,22 @@
       <template #header>
         <div class="card-header">
           <span>报文映射画布编辑器</span>
-          <div>
-            <el-button @click="goToConfig" style="margin-right: 10px">配置管理</el-button>
-            <el-button @click="goToDictionary" style="margin-right: 10px">字典管理</el-button>
-            <el-button @click="goToFunction" style="margin-right: 10px">函数管理</el-button>
-            <el-button @click="openSaveConfigDialog">{{ currentConfigId ? '修改配置' : '保存配置' }}</el-button>
-          </div>
+          <el-button @click="openSaveConfigDialog">{{ currentConfigId ? '修改配置' : '保存配置' }}</el-button>
         </div>
       </template>
 
       <div class="editor-container">
-        <div class="source-panel">
-          <h3>源数据</h3>
+        <div class="source-panel" :class="{ 'collapsed': sourcePanelCollapsed }">
+          <div class="panel-header">
+            <h3>源数据</h3>
+            <el-button
+              text
+              :icon="sourcePanelCollapsed ? ArrowRight : ArrowLeft"
+              @click="sourcePanelCollapsed = !sourcePanelCollapsed"
+              class="collapse-btn"
+            />
+          </div>
+          <div v-show="!sourcePanelCollapsed" class="panel-content">
           <div style="margin-bottom: 10px;">
             <el-select v-model="sourceProtocol" style="width: 100%;" @change="onSourceProtocolChange">
               <el-option label="JSON" value="JSON" />
@@ -52,9 +56,11 @@
               </span>
             </template>
           </el-tree>
+          </div>
         </div>
 
         <div
+            ref="canvasPanel"
             class="canvas-panel"
             @dragover.prevent
             @drop="handleCanvasDrop"
@@ -68,8 +74,17 @@
           <div ref="graphContainer" class="graph-container"></div>
         </div>
 
-        <div class="preview-panel">
-          <h3>转换预览</h3>
+        <div class="preview-panel" :class="{ 'collapsed': previewPanelCollapsed }">
+          <div class="panel-header">
+            <h3>转换预览</h3>
+            <el-button
+              text
+              :icon="previewPanelCollapsed ? ArrowLeft : ArrowRight"
+              @click="previewPanelCollapsed = !previewPanelCollapsed"
+              class="collapse-btn"
+            />
+          </div>
+          <div v-show="!previewPanelCollapsed" class="panel-content">
           <div style="margin-bottom: 10px;">
             <el-select v-model="targetProtocol" style="width: 100%; margin-bottom: 10px;">
               <el-option label="JSON" value="JSON" />
@@ -111,6 +126,7 @@
           />
           <div v-if="previewError" style="margin-top: 10px; color: #f56c6c; font-size: 12px;">
             {{ previewError }}
+          </div>
           </div>
         </div>
       </div>
@@ -274,11 +290,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, onUnmounted } from 'vue'
+import { ref, onMounted, nextTick, onUnmounted, watch } from 'vue'
 import { Graph } from '@antv/x6'
 import { Selection } from '@antv/x6-plugin-selection'
 import { ElMessage } from 'element-plus'
-import { Document, Delete, Plus } from '@element-plus/icons-vue'
+import { Document, Delete, Plus, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import { transformV2Api, configApi, dictionaryApi, functionApi } from '../api'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -287,9 +303,12 @@ const sourceJson = ref('')
 const sourceTreeData = ref([])
 const sourceProtocol = ref('JSON') // 源协议类型：JSON 或 XML
 const targetProtocol = ref('JSON') // 目标协议类型：JSON 或 XML
+const sourcePanelCollapsed = ref(false) // 左侧面板折叠状态，默认展开
+const previewPanelCollapsed = ref(false) // 右侧面板折叠状态，默认展开
 const xmlRootElementName = ref('') // XML根元素名称
 const includeXmlDeclaration = ref(false) // 是否包含XML声明
 const graphContainer = ref(null)
+const canvasPanel = ref(null)
 let graph = null
 let nodeCounter = 0
 let autoLayoutCount = 0 // 用于双击排版的计数器
@@ -332,6 +351,11 @@ const router = useRouter()
 const currentConfigId = ref(null) // 当前编辑的配置ID
 const currentConfigEntity = ref(null) // 当前编辑的配置实体（包含名称和描述）
 
+// 使用 ResizeObserver 监听画布容器大小变化
+let resizeObserver = null
+
+
+
 onMounted(() => {
   nextTick(() => {
     initGraph()
@@ -344,11 +368,116 @@ onMounted(() => {
       currentConfigId.value = configId
       loadConfigToCanvas(Number(configId))
     }
+    
+    // 设置 ResizeObserver 监听画布容器大小变化
+    // 同时监听 canvas-panel 和 graphContainer
+    if (graphContainer.value && window.ResizeObserver) {
+      resizeObserver = new ResizeObserver((entries) => {
+        if (graph && entries.length > 0) {
+          // 使用 requestAnimationFrame 确保在浏览器重绘后调用
+          requestAnimationFrame(() => {
+            if (graphContainer.value) {
+              const rect = graphContainer.value.getBoundingClientRect()
+              if (rect.width > 0 && rect.height > 0) {
+                graph.resize(rect.width, rect.height)
+              }
+            }
+          })
+        }
+      })
+      // 监听 graphContainer 本身的大小变化
+      resizeObserver.observe(graphContainer.value)
+      // 如果 canvasPanel 存在，也监听它
+      if (canvasPanel.value) {
+        resizeObserver.observe(canvasPanel.value)
+      }
+    }
+    
+    // 监听窗口大小变化
+    window.addEventListener('resize', handleWindowResize)
+  })
+})
+
+// 监听面板折叠状态变化，动态调整画布大小
+watch([sourcePanelCollapsed, previewPanelCollapsed], () => {
+  // 等待 CSS 过渡动画完成（300ms）后再调整画布大小
+  setTimeout(() => {
+    if (graph && graphContainer.value) {
+      // 使用 requestAnimationFrame 确保在浏览器重绘后调用
+      requestAnimationFrame(() => {
+        // 再次使用 requestAnimationFrame 确保布局已完成
+        requestAnimationFrame(() => {
+          const rect = graphContainer.value.getBoundingClientRect()
+          if (rect.width > 0 && rect.height > 0) {
+            graph.resize(rect.width, rect.height)
+          }
+        })
+      })
+    }
+  }, 320) // 稍微延长一点时间，确保过渡完成
+})
+
+// 窗口大小变化时也调整画布大小
+const handleWindowResize = () => {
+  if (graph && graphContainer.value) {
+    requestAnimationFrame(() => {
+      const rect = graphContainer.value.getBoundingClientRect()
+      if (rect.width > 0 && rect.height > 0) {
+        graph.resize(rect.width, rect.height)
+      }
+    })
+  }
+}
+
+onMounted(() => {
+  nextTick(() => {
+    initGraph()
+    // 加载字典列表和函数列表
+    loadDictionaryList()
+    loadAvailableFunctions()
+    // 检查URL参数，如果是编辑模式则加载配置
+    const configId = route.query.configId
+    if (configId) {
+      currentConfigId.value = configId
+      loadConfigToCanvas(Number(configId))
+    }
+    
+    // 设置 ResizeObserver 监听画布容器大小变化
+    // 同时监听 canvas-panel 和 graphContainer
+    if (graphContainer.value && window.ResizeObserver) {
+      resizeObserver = new ResizeObserver((entries) => {
+        if (graph && entries.length > 0) {
+          // 使用 requestAnimationFrame 确保在浏览器重绘后调用
+          requestAnimationFrame(() => {
+            if (graphContainer.value) {
+              const rect = graphContainer.value.getBoundingClientRect()
+              if (rect.width > 0 && rect.height > 0) {
+                graph.resize(rect.width, rect.height)
+              }
+            }
+          })
+        }
+      })
+      // 监听 graphContainer 本身的大小变化
+      resizeObserver.observe(graphContainer.value)
+      // 如果 canvasPanel 存在，也监听它
+      if (canvasPanel.value) {
+        resizeObserver.observe(canvasPanel.value)
+      }
+    }
+    
+    // 监听窗口大小变化
+    window.addEventListener('resize', handleWindowResize)
   })
 })
 
 onUnmounted(() => {
   if (keyDownHandler) window.removeEventListener('keydown', keyDownHandler)
+  window.removeEventListener('resize', handleWindowResize)
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+    resizeObserver = null
+  }
   if (graph) {
     graph.dispose()
     graph = null
@@ -358,8 +487,13 @@ onUnmounted(() => {
 const initGraph = () => {
   if (!graphContainer.value) return
 
+  // 获取容器尺寸
+  const rect = graphContainer.value.getBoundingClientRect()
+  
   graph = new Graph({
     container: graphContainer.value,
+    width: rect.width || 800,
+    height: rect.height || 600,
     grid: true,
     panning: {
       enabled: true,
@@ -1257,19 +1391,6 @@ const exportMappingConfig = () => {
   return config
 }
 
-// 导航函数
-const goToConfig = () => {
-  router.push({ path: '/config' })
-}
-
-const goToDictionary = () => {
-  router.push({ path: '/dictionary' })
-}
-
-const goToFunction = () => {
-  router.push({ path: '/function' })
-}
-
 // 打开保存配置对话框
 const openSaveConfigDialog = () => {
   const config = exportMappingConfig()
@@ -1558,11 +1679,88 @@ const loadRulesToCanvas = async (rules) => {
 .canvas-editor { padding: 20px; }
 .editor-card { height: calc(100vh - 100px); }
 .editor-container { display: flex; gap: 20px; height: calc(100vh - 200px); }
-.source-panel { width: 300px; display: flex; flex-direction: column; }
-.canvas-panel { flex: 1; border: 1px solid #ddd; border-radius: 4px; overflow: hidden; position: relative; display: flex; flex-direction: column; }
+.source-panel { 
+  width: 300px; 
+  display: flex; 
+  flex-direction: column; 
+  transition: width 0.3s ease;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background-color: #fff;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.source-panel.collapsed {
+  width: 50px;
+}
+.source-panel.collapsed .panel-header {
+  justify-content: center;
+  padding: 10px 5px;
+}
+.canvas-panel { 
+  flex: 1; 
+  min-width: 0; 
+  border: 1px solid #ddd; 
+  border-radius: 4px; 
+  overflow: hidden; 
+  position: relative; 
+  display: flex; 
+  flex-direction: column; 
+}
 .canvas-toolbar { padding: 10px; border-bottom: 1px solid #ddd; background-color: #fff; }
-.graph-container { flex: 1; width: 100%; background-color: #fafafa; }
-.preview-panel { width: 350px; display: flex; flex-direction: column; }
+.graph-container { 
+  flex: 1; 
+  width: 100%; 
+  height: 100%;
+  background-color: #fafafa; 
+  position: relative;
+  overflow: hidden;
+}
+.preview-panel { 
+  width: 350px; 
+  display: flex; 
+  flex-direction: column; 
+  transition: width 0.3s ease;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background-color: #fff;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.preview-panel.collapsed {
+  width: 50px;
+}
+.preview-panel.collapsed .panel-header {
+  justify-content: center;
+  padding: 10px 5px;
+}
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 15px;
+  border-bottom: 1px solid #e4e7ed;
+  background-color: #f5f7fa;
+}
+.panel-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+}
+.collapsed .panel-header h3 {
+  display: none;
+}
+.collapse-btn {
+  padding: 4px;
+  font-size: 16px;
+}
+.panel-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 15px;
+  overflow-y: auto;
+}
 .data-tree { flex: 1; overflow: auto; border: 1px solid #ddd; padding: 10px; }
 .dict-item { display: flex; align-items: center; margin-bottom: 8px; }
 

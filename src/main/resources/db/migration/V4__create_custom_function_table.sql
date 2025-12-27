@@ -15,3 +15,4 @@ CREATE TABLE IF NOT EXISTS `custom_function` (
     KEY `idx_enabled` (`enabled`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='自定义函数表';
 
+

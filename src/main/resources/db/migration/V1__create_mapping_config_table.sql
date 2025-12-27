@@ -10,3 +10,4 @@ CREATE TABLE IF NOT EXISTS `mapping_config` (
     UNIQUE KEY `uk_name` (`name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='映射配置表';
 
+

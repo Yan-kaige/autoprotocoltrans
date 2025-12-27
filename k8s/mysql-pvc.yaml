@@ -12,3 +12,4 @@ spec:
   # 如果需要指定存储类，取消注释下面一行并修改存储类名称
   # storageClassName: standard
 
+

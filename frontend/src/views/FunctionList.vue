@@ -4,11 +4,7 @@
       <template #header>
         <div class="card-header">
           <span>函数管理</span>
-          <div>
-            <el-button @click="goToConfig" style="margin-right: 10px">配置管理</el-button>
-            <el-button @click="goToDictionary" style="margin-right: 10px">字典管理</el-button>
-            <el-button type="primary" @click="openFunctionDialog">新建函数</el-button>
-          </div>
+          <el-button type="primary" @click="openFunctionDialog">新建函数</el-button>
         </div>
       </template>
 
@@ -93,11 +89,8 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { functionApi } from '../api'
-
-const router = useRouter()
 const functionList = ref([])
 const loading = ref(false)
 const dialogVisible = ref(false)
@@ -248,14 +241,6 @@ const deleteFunction = async (id) => {
     }
   }
 }
-
-const goToConfig = () => {
-  router.push({ path: '/config' })
-}
-
-const goToDictionary = () => {
-  router.push({ path: '/dictionary' })
-}
 </script>
 
 <style scoped>
@@ -277,4 +262,5 @@ code {
   font-family: 'Courier New', monospace;
 }
 </style>
+
 

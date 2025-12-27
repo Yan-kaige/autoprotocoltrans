@@ -27,3 +27,4 @@ data:
   mybatis-plus.global-config.db-config.id-type: "auto"
   mybatis-plus.global-config.db-config.table-underline: "true"
 
+

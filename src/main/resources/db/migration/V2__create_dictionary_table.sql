@@ -12,3 +12,4 @@ CREATE TABLE IF NOT EXISTS `dictionary` (
     KEY `idx_code` (`code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='字典表';
 
+

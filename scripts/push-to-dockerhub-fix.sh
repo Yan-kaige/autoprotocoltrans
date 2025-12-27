@@ -49,3 +49,4 @@ echo "镜像地址: https://hub.docker.com/r/${DOCKER_USERNAME}/${IMAGE_NAME}"
 echo ""
 echo "拉取镜像: docker pull ${REMOTE_IMAGE}"
 
+

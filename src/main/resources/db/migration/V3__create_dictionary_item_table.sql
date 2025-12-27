@@ -13,3 +13,4 @@ CREATE TABLE IF NOT EXISTS `dictionary_item` (
     CONSTRAINT `fk_dictionary_item_dictionary` FOREIGN KEY (`dictionary_id`) REFERENCES `dictionary` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='字典项表';
 
+
