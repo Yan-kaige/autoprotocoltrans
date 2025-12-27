@@ -37,9 +37,10 @@
           <div class="tree-tip">拖拽或双击字段到画布（也可在画布上直接点击"添加节点"按钮）</div>
           <el-input
               v-model="searchKeyword"
-              placeholder="搜索字段名..."
+              placeholder="搜索字段名（支持树和画布）..."
               clearable
               style="margin-bottom: 10px;"
+              @input="handleSearch"
           >
             <template #prefix>
               <el-icon><Search /></el-icon>
@@ -806,6 +807,125 @@ const filteredSourceTreeData = computed(() => {
     }
   })
 })
+
+// 搜索画布元素
+const handleSearch = () => {
+  if (!graph) return
+  
+  const keyword = searchKeyword.value?.trim()
+  
+  // 清除之前的高亮
+  const allNodes = graph.getNodes()
+  allNodes.forEach(node => {
+    const attrs = node.getAttrs()
+    const data = node.getData()
+    // 恢复原始样式
+    if (data?.type === 'source') {
+      node.setAttrs({
+        body: {
+          fill: '#e3f2fd',
+          stroke: '#2196f3',
+          strokeWidth: 1,
+          rx: 4
+        }
+      })
+    } else if (data?.type === 'target') {
+      node.setAttrs({
+        body: {
+          fill: '#f3e5f5',
+          stroke: '#9c27b0',
+          strokeWidth: 1,
+          rx: 4
+        }
+      })
+    }
+  })
+  
+  // 如果没有搜索关键词，不进行高亮
+  if (!keyword) {
+    return
+  }
+  
+  const lowerKeyword = keyword.toLowerCase()
+  const matchedNodes = []
+  
+  // 搜索所有节点
+  allNodes.forEach(node => {
+    const data = node.getData()
+    const label = node.attr('text/text') || ''
+    const path = data?.path || ''
+    
+    // 检查是否匹配
+    const labelMatch = label.toLowerCase().includes(lowerKeyword)
+    const pathMatch = path.toLowerCase().includes(lowerKeyword)
+    
+    if (labelMatch || pathMatch) {
+      matchedNodes.push(node)
+      
+      // 高亮显示匹配的节点（红色边框）
+      const attrs = node.getAttrs()
+      node.setAttrs({
+        body: {
+          ...attrs.body,
+          stroke: '#ff4d4f', // 红色高亮
+          strokeWidth: 3
+        }
+      })
+    }
+  })
+  
+  // 如果有匹配的节点，自动调整视野以显示所有匹配的节点
+  if (matchedNodes.length > 0) {
+    nextTick(() => {
+      // 计算所有匹配节点的边界框
+      let minX = Infinity
+      let minY = Infinity
+      let maxX = -Infinity
+      let maxY = -Infinity
+      
+      matchedNodes.forEach(node => {
+        const bbox = node.getBBox()
+        minX = Math.min(minX, bbox.x)
+        minY = Math.min(minY, bbox.y)
+        maxX = Math.max(maxX, bbox.x + bbox.width)
+        maxY = Math.max(maxY, bbox.y + bbox.height)
+      })
+      
+      // 添加一些边距
+      const padding = 50
+      minX -= padding
+      minY -= padding
+      maxX += padding
+      maxY += padding
+      
+      // 计算中心点和尺寸
+      const centerX = (minX + maxX) / 2
+      const centerY = (minY + maxY) / 2
+      const width = maxX - minX
+      const height = maxY - minY
+      
+      // 将视图中心移动到匹配节点的中心
+      graph.centerPoint(centerX, centerY)
+      
+      // 如果匹配节点较多，自动缩放以适应视野
+      if (matchedNodes.length > 1) {
+        const containerRect = graphContainer.value.getBoundingClientRect()
+        const scaleX = containerRect.width / width
+        const scaleY = containerRect.height / height
+        const scale = Math.min(scaleX, scaleY, 1) // 不超过原始大小
+        
+        if (scale < 1) {
+          graph.zoomToFit({
+            padding: 40,
+            maxScale: 1,
+            minScale: scale,
+            preserveAspectRatio: true
+          })
+        }
+      }
+    })
+  }
+}
 
 // --- 拖拽与双击逻辑 ---
 let draggingData = null

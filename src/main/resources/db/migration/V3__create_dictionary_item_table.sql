@@ -14,3 +14,4 @@ CREATE TABLE IF NOT EXISTS `dictionary_item` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='字典项表';
 
 
+
