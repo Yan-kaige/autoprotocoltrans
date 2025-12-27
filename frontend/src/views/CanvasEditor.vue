@@ -64,6 +64,9 @@
               >
                 <el-icon><Document /></el-icon>
                 {{ node.label }} ({{ data.type }})
+                <el-icon v-if="isFieldMapped(data.path)" class="mapped-icon" title="已映射">
+                  <Check />
+                </el-icon>
               </span>
             </template>
           </el-tree>
@@ -317,7 +320,7 @@ import { ref, onMounted, nextTick, onUnmounted, watch, computed } from 'vue'
 import { Graph } from '@antv/x6'
 import { Selection } from '@antv/x6-plugin-selection'
 import { ElMessage } from 'element-plus'
-import { Document, Delete, Plus, ArrowLeft, ArrowRight, FullScreen, ZoomIn, ZoomOut, Search } from '@element-plus/icons-vue'
+import { Document, Delete, Plus, ArrowLeft, ArrowRight, FullScreen, ZoomIn, ZoomOut, Search, Check } from '@element-plus/icons-vue'
 import { transformV2Api, configApi, dictionaryApi, functionApi } from '../api'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -554,8 +557,16 @@ const initGraph = () => {
 
   // 监听各种操作自动刷新预览
   graph.on('edge:connected', () => nextTick(() => updatePreview()))
-  graph.on('node:removed', () => nextTick(() => updatePreview()))
+  graph.on('node:removed', () => {
+    updateMappedPaths()
+    nextTick(() => updatePreview())
+  })
   graph.on('edge:removed', () => nextTick(() => updatePreview()))
+  
+  // 监听节点添加事件，更新映射状态
+  graph.on('node:added', () => {
+    updateMappedPaths()
+  })
 
   keyDownHandler = (e) => {
     if (e.key !== 'Delete' && e.key !== 'Backspace') return
@@ -927,6 +938,51 @@ const handleSearch = () => {
   }
 }
 
+// 已映射的路径集合（用于实时更新标记）
+const mappedPathsSet = ref(new Set())
+
+// 更新已映射路径集合
+const updateMappedPaths = () => {
+  if (!graph) {
+    mappedPathsSet.value = new Set()
+    return
+  }
+  
+  const paths = new Set()
+  const nodes = graph.getNodes()
+  
+  nodes.forEach(node => {
+    const nodeData = node.getData()
+    if (nodeData?.type === 'source' && nodeData.path) {
+      const path = nodeData.path
+      // 添加原始路径
+      paths.add(path)
+      // 添加标准化路径（移除 $ 前缀）
+      const normalizedPath = path.replace(/^\$\.?/, '')
+      if (normalizedPath) {
+        paths.add(normalizedPath)
+        paths.add('$.' + normalizedPath)
+      }
+    }
+  })
+  
+  mappedPathsSet.value = paths
+}
+
+// 检查字段是否已映射（在画布上有对应的源节点）
+const isFieldMapped = (path) => {
+  if (!path || mappedPathsSet.value.size === 0) return false
+  
+  // 标准化路径
+  const normalizedPath = path.replace(/^\$\.?/, '')
+  
+  // 检查各种可能的路径格式
+  return mappedPathsSet.value.has(path) ||
+         mappedPathsSet.value.has(normalizedPath) ||
+         mappedPathsSet.value.has('$.' + normalizedPath) ||
+         mappedPathsSet.value.has('$' + normalizedPath)
+}
+
 // --- 拖拽与双击逻辑 ---
 let draggingData = null
 const handleTreeDragStart = (e, data) => { draggingData = data }
@@ -1019,7 +1075,10 @@ const createNodePair = (x, y, fieldName = 'newField', sourcePath = null) => {
   })
 
   // 4. 自动刷新预览
-  nextTick(() => updatePreview())
+  nextTick(() => {
+    updatePreview()
+    updateMappedPaths() // 更新映射状态
+  })
 }
 
 /**
@@ -1181,6 +1240,9 @@ const addNodePair = () => {
   
   // 计数器加1，确保下次不重叠
   autoLayoutCount++
+  
+  // 更新映射状态
+  updateMappedPaths()
   
   ElMessage.success('已添加新节点，可以双击节点进行编辑')
 }
@@ -1897,6 +1959,9 @@ const loadRulesToCanvas = async (rules) => {
   
   // 更新布局计数器，确保后续手动添加节点时从正确位置继续
   autoLayoutCount = currentRow
+  
+  // 更新映射状态
+  updateMappedPaths()
 }
 </script>
 
@@ -2000,6 +2065,16 @@ const loadRulesToCanvas = async (rules) => {
   overflow-y: auto;
 }
 .data-tree { flex: 1; overflow: auto; border: 1px solid #ddd; padding: 10px; }
+.tree-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mapped-icon {
+  color: #67c23a;
+  font-size: 14px;
+  margin-left: 4px;
+}
 .dict-item { display: flex; align-items: center; margin-bottom: 8px; }
 
 :deep(.x6-node-selected) rect {
