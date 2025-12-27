@@ -1,13 +1,20 @@
 <template>
   <el-container class="app-container">
-    <el-aside width="200px" class="app-aside">
+    <el-aside :width="menuCollapsed ? '64px' : '200px'" class="app-aside" :class="{ 'collapsed': menuCollapsed }">
       <div class="app-header">
-        <h1>报文转换系统</h1>
+        <h1 v-show="!menuCollapsed">报文转换</h1>
+        <el-button
+          text
+          :icon="menuCollapsed ? ArrowRight : ArrowLeft"
+          @click="menuCollapsed = !menuCollapsed"
+          class="collapse-btn"
+        />
       </div>
       <el-menu
         :default-active="activeMenu"
         router
         class="app-menu"
+        :collapse="menuCollapsed"
       >
         <el-menu-item index="/config">
           <el-icon><Setting /></el-icon>
@@ -30,11 +37,12 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { Setting, Collection, Operation } from '@element-plus/icons-vue'
+import { Setting, Collection, Operation, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 
 const route = useRoute()
+const menuCollapsed = ref(false) // 菜单折叠状态，默认展开
 
 const activeMenu = computed(() => {
   // 根据当前路径匹配菜单项
@@ -71,6 +79,12 @@ const activeMenu = computed(() => {
   border-right: 1px solid #e4e7ed;
   display: flex;
   flex-direction: column;
+  transition: width 0.3s ease;
+  overflow: hidden;
+}
+
+.app-aside.collapsed {
+  width: 64px !important;
 }
 
 .app-header {
@@ -78,6 +92,7 @@ const activeMenu = computed(() => {
   color: white;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: 0 20px;
   height: 60px;
   flex-shrink: 0;
@@ -86,6 +101,17 @@ const activeMenu = computed(() => {
 .app-header h1 {
   font-size: 24px;
   font-weight: 500;
+}
+
+.app-aside.collapsed .app-header {
+  justify-content: center;
+  padding: 0 10px;
+}
+
+.collapse-btn {
+  color: white;
+  padding: 4px;
+  font-size: 16px;
 }
 
 .app-menu {
