@@ -74,6 +74,14 @@
               <el-icon><FullScreen /></el-icon>
               自适应视野
             </el-button>
+            <el-button size="small" @click="zoomIn">
+              <el-icon><ZoomIn /></el-icon>
+              放大
+            </el-button>
+            <el-button size="small" @click="zoomOut">
+              <el-icon><ZoomOut /></el-icon>
+              缩小
+            </el-button>
           </div>
           <div ref="graphContainer" class="graph-container"></div>
         </div>
@@ -298,7 +306,7 @@ import { ref, onMounted, nextTick, onUnmounted, watch } from 'vue'
 import { Graph } from '@antv/x6'
 import { Selection } from '@antv/x6-plugin-selection'
 import { ElMessage } from 'element-plus'
-import { Document, Delete, Plus, ArrowLeft, ArrowRight, FullScreen } from '@element-plus/icons-vue'
+import { Document, Delete, Plus, ArrowLeft, ArrowRight, FullScreen, ZoomIn, ZoomOut } from '@element-plus/icons-vue'
 import { transformV2Api, configApi, dictionaryApi, functionApi } from '../api'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -998,6 +1006,18 @@ const zoomToFit = () => {
     type: 'success',
     duration: 1000
   })
+}
+
+// 放大画布
+const zoomIn = () => {
+  if (!graph) return
+  graph.zoom(0.2) // 放大 20%
+}
+
+// 缩小画布
+const zoomOut = () => {
+  if (!graph) return
+  graph.zoom(-0.2) // 缩小 20%
 }
 
 // --- 配置与转换逻辑 ---
