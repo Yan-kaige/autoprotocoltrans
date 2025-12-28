@@ -34,13 +34,21 @@
               格式化
             </el-button>
           </div>
+          <!-- JSON 模式使用 Monaco Editor -->
+          <div 
+            v-if="sourceProtocol === 'JSON'"
+            id="source-json-monaco-editor" 
+            style="height: 200px; width: 100%; border: 1px solid #dcdfe6; border-radius: 4px;"
+            :class="{ 'input-error': sourceParseError }"
+          ></div>
+          <!-- XML 模式使用普通 textarea -->
           <el-input
+              v-else
               v-model="sourceJson"
               type="textarea"
               :rows="10"
-              :placeholder="sourceProtocol === 'XML' ? '请输入源XML数据' : '请输入源JSON数据'"
+              placeholder="请输入源XML数据"
               @input="parseSourceTree"
-              @paste="handlePaste"
               :class="{ 'input-error': sourceParseError }"
           />
           <div v-if="sourceParseError" style="color: #f56c6c; font-size: 12px; margin-top: 5px; margin-bottom: 10px;">
@@ -174,14 +182,11 @@
           >
             刷新预览
           </el-button>
-          <el-input
-              v-model="previewResult"
-              type="textarea"
-              :rows="20"
-              readonly
-              placeholder="配置映射规则后，点击刷新预览"
-              style="font-family: 'Courier New', monospace;"
-          />
+          <!-- 预览结果使用 Monaco Editor -->
+          <div 
+            id="preview-result-monaco-editor" 
+            style="height: 400px; width: 100%; border: 1px solid #dcdfe6; border-radius: 4px;"
+          ></div>
           <div v-if="previewError" style="margin-top: 10px; color: #f56c6c; font-size: 12px;">
             {{ previewError }}
           </div>
@@ -466,7 +471,9 @@ const graphContainer = ref(null)
 const canvasPanel = ref(null)
 let graph = null
 let minimap = null // 小地图实例
-let groovyEditor = null // Monaco Editor 实例
+let groovyEditor = null // Monaco Editor 实例（Groovy脚本）
+let sourceJsonEditor = null // Monaco Editor 实例（JSON输入）
+let previewResultEditor = null // Monaco Editor 实例（预览结果）
 let isMonacoProviderRegistered = false // Monaco Provider 是否已注册
 
 // 注册 Monaco 代码提示提供器（全局只注册一次）
@@ -762,6 +769,12 @@ onMounted(() => {
     loadDictionaryList()
     loadAvailableFunctions()
     // 注意：Monaco Editor 将在对话框打开且类型为 GROOVY 时初始化
+    // 初始化 JSON 编辑器（如果默认是 JSON）
+    if (sourceProtocol.value === 'JSON') {
+      initSourceJsonEditor()
+    }
+    // 初始化预览结果编辑器
+    initPreviewResultEditor()
     // 检查URL参数，如果是编辑模式则加载配置
     const configId = route.query.configId
     if (configId) {
@@ -799,6 +812,26 @@ watch(() => currentEdgeConfig.value.transformType, (newType) => {
   }
 })
 
+// 监听协议类型切换
+watch(() => sourceProtocol.value, (newProtocol) => {
+  if (newProtocol === 'JSON') {
+    nextTick(() => {
+      initSourceJsonEditor()
+    })
+  } else {
+    // 切换到 XML，销毁 JSON 编辑器
+    if (sourceJsonEditor) {
+      sourceJsonEditor.dispose()
+      sourceJsonEditor = null
+    }
+  }
+})
+
+// 监听目标协议类型切换，更新预览编辑器语言
+watch(() => targetProtocol.value, () => {
+  updatePreviewEditor()
+})
+
 onUnmounted(() => {
   if (keyDownHandler) window.removeEventListener('keydown', keyDownHandler)
   window.removeEventListener('resize', handleWindowResize)
@@ -810,6 +843,14 @@ onUnmounted(() => {
   if (groovyEditor) {
     groovyEditor.dispose()
     groovyEditor = null
+  }
+  if (sourceJsonEditor) {
+    sourceJsonEditor.dispose()
+    sourceJsonEditor = null
+  }
+  if (previewResultEditor) {
+    previewResultEditor.dispose()
+    previewResultEditor = null
   }
   if (minimap) {
     if (minimap.container && minimap.container.parentNode) {
@@ -892,6 +933,148 @@ const handleDrawerOpened = () => {
   }
 }
 
+// 初始化 JSON 编辑器（Monaco Editor）
+const initSourceJsonEditor = async () => {
+  if (sourceJsonEditor) {
+    sourceJsonEditor.dispose()
+    sourceJsonEditor = null
+  }
+
+  await nextTick()
+  
+  setTimeout(async () => {
+    const domElement = document.getElementById('source-json-monaco-editor')
+    if (!domElement) {
+      return
+    }
+
+    try {
+      const monaco = await loader.init()
+      
+      sourceJsonEditor = monaco.editor.create(domElement, {
+        value: sourceJson.value || '',
+        language: 'json',
+        theme: 'vs',
+        automaticLayout: true,
+        fixedOverflowWidgets: true,
+        lineNumbers: 'on',
+        minimap: { enabled: false },
+        scrollBeyondLastLine: false,
+        readOnly: false,
+        formatOnPaste: true,
+        formatOnType: false,
+        wordWrap: 'on',
+        fontSize: 14
+      })
+
+      // 监听内容变化，同步到 sourceJson
+      sourceJsonEditor.onDidChangeModelContent(() => {
+        if (sourceJsonEditor) {
+          const val = sourceJsonEditor.getValue()
+          sourceJson.value = val
+          parseSourceTree()
+        }
+      })
+
+      // 监听粘贴事件，自动格式化
+      sourceJsonEditor.onDidPaste(() => {
+        setTimeout(() => {
+          if (sourceJsonEditor && sourceProtocol.value === 'JSON') {
+            try {
+              const content = sourceJsonEditor.getValue()
+              const parsed = JSON.parse(content)
+              const formatted = JSON.stringify(parsed, null, 2)
+              sourceJsonEditor.setValue(formatted)
+              ElMessage.success('已自动格式化 JSON')
+            } catch (e) {
+              // 格式化失败时不提示
+            }
+          }
+        }, 10)
+      })
+
+      // 点击容器时聚焦
+      domElement.addEventListener('mousedown', () => {
+        if (sourceJsonEditor) {
+          sourceJsonEditor.focus()
+        }
+      }, true)
+
+      sourceJsonEditor.layout()
+    } catch (e) {
+      console.error("Monaco JSON Editor load error:", e)
+    }
+  }, 100)
+}
+
+// 初始化预览结果编辑器（Monaco Editor）
+const initPreviewResultEditor = async () => {
+  if (previewResultEditor) {
+    previewResultEditor.dispose()
+    previewResultEditor = null
+  }
+
+  await nextTick()
+  
+  setTimeout(async () => {
+    const domElement = document.getElementById('preview-result-monaco-editor')
+    if (!domElement) {
+      return
+    }
+
+    try {
+      const monaco = await loader.init()
+      
+      // 根据目标协议确定语言
+      const language = targetProtocol.value === 'JSON' ? 'json' : 'xml'
+      
+      previewResultEditor = monaco.editor.create(domElement, {
+        value: previewResult.value || '',
+        language: language,
+        theme: 'vs',
+        automaticLayout: true,
+        fixedOverflowWidgets: true,
+        lineNumbers: 'on',
+        minimap: { enabled: false },
+        scrollBeyondLastLine: false,
+        readOnly: true, // 预览框只读
+        wordWrap: 'on',
+        fontSize: 14
+      })
+
+      previewResultEditor.layout()
+    } catch (e) {
+      console.error("Monaco Preview Editor load error:", e)
+    }
+  }, 100)
+}
+
+// 更新预览编辑器内容
+const updatePreviewEditor = () => {
+  if (!previewResultEditor) return
+  
+  const language = targetProtocol.value === 'JSON' ? 'json' : 'xml'
+  const model = previewResultEditor.getModel()
+  
+  // 更新语言模式（使用全局 monaco API）
+  if (model && window.monaco) {
+    window.monaco.editor.setModelLanguage(model, language)
+  }
+  
+  // 更新内容
+  const currentValue = previewResultEditor.getValue()
+  if (currentValue !== previewResult.value) {
+    previewResultEditor.setValue(previewResult.value || '')
+    // 格式化代码
+    setTimeout(() => {
+      if (previewResultEditor) {
+        previewResultEditor.getAction('editor.action.formatDocument').run().catch(() => {
+          // 格式化失败时忽略错误
+        })
+      }
+    }, 100)
+  }
+}
 
 const initGraph = () => {
   if (!graphContainer.value) return
@@ -1378,7 +1561,16 @@ const formatSourceData = () => {
     if (sourceProtocol.value === 'JSON') {
       // JSON 格式化
       const parsed = JSON.parse(sourceJson.value)
-      sourceJson.value = JSON.stringify(parsed, null, 2)
+      const formatted = JSON.stringify(parsed, null, 2)
+      sourceJson.value = formatted
+      
+      // 如果使用 Monaco Editor，更新编辑器内容
+      if (sourceJsonEditor) {
+        sourceJsonEditor.setValue(formatted)
+        // 格式化代码
+        sourceJsonEditor.getAction('editor.action.formatDocument').run()
+      }
+      
       ElMessage.success('JSON 格式化成功')
     } else {
       // XML 格式化
@@ -2362,10 +2554,18 @@ const updatePreview = async () => {
       previewResult.value = transformedData
     }
     previewError.value = ''
+    
+    // 更新预览编辑器内容
+    updatePreviewEditor()
   } catch (e) {
     const errorMsg = e.response?.data?.errorMessage || e.message || '未知错误'
     previewError.value = '转换失败: ' + errorMsg
     console.error('转换失败详情:', e.response?.data || e)
+    
+    // 即使出错也更新编辑器（显示错误信息或空内容）
+    if (previewResultEditor) {
+      previewResultEditor.setValue('')
+    }
   } finally { previewing.value = false }
 }
 
