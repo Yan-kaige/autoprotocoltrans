@@ -19,11 +19,20 @@
             />
           </div>
           <div v-show="!sourcePanelCollapsed" class="panel-content">
-          <div style="margin-bottom: 10px;">
-            <el-select v-model="sourceProtocol" style="width: 100%;" @change="onSourceProtocolChange">
+          <div style="margin-bottom: 10px; display: flex; gap: 10px; align-items: center;">
+            <el-select v-model="sourceProtocol" style="flex: 1;" @change="onSourceProtocolChange">
               <el-option label="JSON" value="JSON" />
               <el-option label="XML" value="XML" />
             </el-select>
+            <el-button 
+              size="small" 
+              @click="formatSourceData"
+              :disabled="!sourceJson.trim()"
+              title="格式化"
+            >
+              <el-icon><Setting /></el-icon>
+              格式化
+            </el-button>
           </div>
           <el-input
               v-model="sourceJson"
@@ -31,6 +40,7 @@
               :rows="10"
               :placeholder="sourceProtocol === 'XML' ? '请输入源XML数据' : '请输入源JSON数据'"
               @input="parseSourceTree"
+              @paste="handlePaste"
               :class="{ 'input-error': sourceParseError }"
           />
           <div v-if="sourceParseError" style="color: #f56c6c; font-size: 12px; margin-top: 5px; margin-bottom: 10px;">
@@ -1355,6 +1365,128 @@ const onSourceProtocolChange = () => {
   // 切换协议类型时，清空错误信息并重新解析
   sourceParseError.value = ''
   parseSourceTree()
+}
+
+// 格式化源数据
+const formatSourceData = () => {
+  if (!sourceJson.value.trim()) {
+    ElMessage.warning('请输入要格式化的数据')
+    return
+  }
+  
+  try {
+    if (sourceProtocol.value === 'JSON') {
+      // JSON 格式化
+      const parsed = JSON.parse(sourceJson.value)
+      sourceJson.value = JSON.stringify(parsed, null, 2)
+      ElMessage.success('JSON 格式化成功')
+    } else {
+      // XML 格式化
+      sourceJson.value = formatXml(sourceJson.value)
+      ElMessage.success('XML 格式化成功')
+    }
+    // 格式化后重新解析
+    parseSourceTree()
+  } catch (e) {
+    ElMessage.error('格式化失败: ' + (e.message || '格式错误'))
+  }
+}
+
+// XML 格式化函数
+const formatXml = (xmlString) => {
+  try {
+    const parser = new DOMParser()
+    const xmlDoc = parser.parseFromString(xmlString, 'text/xml')
+    
+    // 检查是否有解析错误
+    const parseError = xmlDoc.querySelector('parsererror')
+    if (parseError) {
+      throw new Error('XML格式错误')
+    }
+    
+    // 格式化 XML
+    const formatNode = (node, indent = '') => {
+      let result = ''
+      
+      if (node.nodeType === 1) { // 元素节点
+        const nodeName = node.nodeName
+        const attributes = Array.from(node.attributes)
+          .map(attr => ` ${attr.name}="${attr.value}"`)
+          .join('')
+        
+        const children = Array.from(node.childNodes).filter(
+          child => child.nodeType === 1 || (child.nodeType === 3 && child.textContent.trim())
+        )
+        
+        if (children.length === 0) {
+          // 自闭合标签或空标签
+          const textContent = node.textContent?.trim()
+          if (textContent) {
+            result = `${indent}<${nodeName}${attributes}>${textContent}</${nodeName}>`
+          } else {
+            result = `${indent}<${nodeName}${attributes} />`
+          }
+        } else {
+          // 有子节点
+          result = `${indent}<${nodeName}${attributes}>\n`
+          children.forEach(child => {
+            if (child.nodeType === 1) {
+              result += formatNode(child, indent + '  ') + '\n'
+            } else if (child.nodeType === 3 && child.textContent.trim()) {
+              result += `${indent}  ${child.textContent.trim()}\n`
+            }
+          })
+          result += `${indent}</${nodeName}>`
+        }
+      }
+      
+      return result
+    }
+    
+    // 获取根元素
+    const rootElement = xmlDoc.documentElement
+    if (!rootElement) {
+      throw new Error('找不到根元素')
+    }
+    
+    // 检查是否有 XML 声明
+    const hasDeclaration = xmlString.trim().startsWith('<?xml')
+    let declaration = ''
+    if (hasDeclaration) {
+      const declarationMatch = xmlString.match(/^<\?xml[^>]*\?>/)
+      if (declarationMatch) {
+        declaration = declarationMatch[0] + '\n'
+      }
+    }
+    
+    return declaration + formatNode(rootElement)
+  } catch (e) {
+    throw new Error('XML格式化失败: ' + e.message)
+  }
+}
+
+// 处理粘贴事件，自动格式化（仅 JSON）
+const handlePaste = (e) => {
+  // 只对 JSON 进行自动格式化，XML 不自动格式化
+  if (sourceProtocol.value !== 'JSON') return
+  
+  // 使用 setTimeout 确保粘贴内容已经插入到输入框
+  setTimeout(() => {
+    const pastedText = sourceJson.value
+    if (!pastedText || !pastedText.trim()) return
+    
+    try {
+      // 尝试解析并格式化 JSON
+      const parsed = JSON.parse(pastedText)
+      sourceJson.value = JSON.stringify(parsed, null, 2)
+      ElMessage.success('已自动格式化 JSON')
+      // 格式化后重新解析
+      parseSourceTree()
+    } catch (e) {
+      // 格式化失败时不提示，让用户手动格式化
+      // 这样可以避免粘贴正常内容时弹出错误提示
+    }
+  }, 10)
 }
 
 const convertToTreeData = (obj, prefix, pathPrefix) => {
@@ -2901,3 +3033,4 @@ const loadRulesToCanvas = async (rules) => {
   border-color: #f56c6c;
 }
 </style>
+
