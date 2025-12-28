@@ -2351,7 +2351,14 @@ const addFieldToSourceData = (fieldName) => {
         }
         currentData = parseXmlToObject(sourceJson.value)
       } else {
-        currentData = JSON.parse(sourceJson.value)
+        // JSON模式：从Monaco Editor获取内容，如果没有则从sourceJson获取
+        let jsonText = sourceJson.value
+        if (sourceJsonEditor) {
+          jsonText = sourceJsonEditor.getValue()
+        }
+        if (jsonText.trim()) {
+          currentData = JSON.parse(jsonText)
+        }
       }
     }
     
@@ -2374,12 +2381,24 @@ const addFieldToSourceData = (fieldName) => {
     currentData[fieldName] = `test_${fieldName}`
     
     // 根据协议类型格式化并更新
+    let newContent = ''
     if (sourceProtocol.value === 'XML') {
       // XML格式：使用提取的或默认的根元素名称
-      sourceJson.value = objectToXml(currentData, rootName)
+      newContent = objectToXml(currentData, rootName)
+      sourceJson.value = newContent
     } else {
       // JSON格式：格式化输出
-      sourceJson.value = JSON.stringify(currentData, null, 2)
+      newContent = JSON.stringify(currentData, null, 2)
+      sourceJson.value = newContent
+      
+      // 如果使用Monaco Editor，同步更新编辑器内容
+      if (sourceJsonEditor) {
+        sourceJsonEditor.setValue(newContent)
+        // 格式化文档
+        nextTick(() => {
+          sourceJsonEditor.getAction('editor.action.formatDocument').run()
+        })
+      }
     }
     
     // 刷新树显示
@@ -2387,10 +2406,22 @@ const addFieldToSourceData = (fieldName) => {
   } catch (e) {
     console.error('添加字段到源数据失败:', e)
     // 如果解析失败，创建新的数据结构
+    let newContent = ''
     if (sourceProtocol.value === 'XML') {
-      sourceJson.value = `<?xml version="1.0" encoding="UTF-8"?>\n<root>\n  <${fieldName}>test_${fieldName}</${fieldName}>\n</root>`
+      newContent = `<?xml version="1.0" encoding="UTF-8"?>\n<root>\n  <${fieldName}>test_${fieldName}</${fieldName}>\n</root>`
+      sourceJson.value = newContent
     } else {
-      sourceJson.value = JSON.stringify({ [fieldName]: `test_${fieldName}` }, null, 2)
+      newContent = JSON.stringify({ [fieldName]: `test_${fieldName}` }, null, 2)
+      sourceJson.value = newContent
+      
+      // 如果使用Monaco Editor，同步更新编辑器内容
+      if (sourceJsonEditor) {
+        sourceJsonEditor.setValue(newContent)
+        // 格式化文档
+        nextTick(() => {
+          sourceJsonEditor.getAction('editor.action.formatDocument').run()
+        })
+      }
     }
     parseSourceTree()
   }
@@ -2413,13 +2444,57 @@ const addNodePair = () => {
   const targetX = 250 + (col * COLUMN_WIDTH)
   const targetY = 50 + (row * ROW_HEIGHT)
   
-  // 生成字段名
-  const fieldName = `field_${nodeCounter + 1}`
+  let fieldName = null
+  let sourcePath = null
   
-  // 使用默认字段名创建节点对
-  createNodePair(targetX, targetY, fieldName, null)
+  // 检查是否有源数据，如果有则从源数据中提取未映射的字段
+  if (sourceTreeData.value && sourceTreeData.value.length > 0) {
+    // 收集所有字段
+    const allFields = []
+    sourceTreeData.value.forEach(rootNode => {
+      if (rootNode.children) {
+        rootNode.children.forEach(child => {
+          collectAllFields(child, allFields)
+        })
+      }
+    })
+    
+    // 获取已映射的路径
+    const mappedPaths = new Set()
+    if (graph) {
+      const cells = graph.getCells()
+      cells.forEach(cell => {
+        if (cell.isNode() && cell.getData()?.type === 'source' && cell.getData()?.path) {
+          mappedPaths.add(cell.getData().path)
+        }
+      })
+    }
+    
+    // 找到第一个未映射的字段
+    const unmappedField = allFields.find(field => !mappedPaths.has(field.path))
+    
+    if (unmappedField) {
+      // 提取字段名（从路径中获取最后一部分）
+      const pathParts = unmappedField.path.split('.')
+      fieldName = pathParts[pathParts.length - 1].replace(/\[.*?\]/g, '') // 移除数组索引
+      sourcePath = unmappedField.path
+    } else {
+      // 所有字段都已映射，提示用户
+      ElMessage.info('源数据中的所有字段都已映射，请手动添加新字段或修改现有映射')
+      return
+    }
+  }
   
-  // 自动生成对应的测试输入数据
+  // 如果没有源数据或没有找到未映射字段，创建新字段
+  if (!fieldName) {
+    fieldName = `field_${nodeCounter + 1}`
+    sourcePath = null
+  }
+  
+  // 创建节点对
+  createNodePair(targetX, targetY, fieldName, sourcePath)
+  
+  // 确保源数据中有这个字段（如果源数据为空或字段不存在，则添加）
   addFieldToSourceData(fieldName)
   
   // 计数器加1，确保下次不重叠
