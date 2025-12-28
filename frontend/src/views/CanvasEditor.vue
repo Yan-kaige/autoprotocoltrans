@@ -34,63 +34,79 @@
               格式化
             </el-button>
           </div>
-          <!-- JSON 模式使用 Monaco Editor -->
-          <div 
-            v-if="sourceProtocol === 'JSON'"
-            id="source-json-monaco-editor" 
-            style="height: 200px; width: 100%; border: 1px solid #dcdfe6; border-radius: 4px;"
-            :class="{ 'input-error': sourceParseError }"
-          ></div>
-          <!-- XML 模式使用普通 textarea -->
-          <el-input
-              v-else
-              v-model="sourceJson"
-              type="textarea"
-              :rows="10"
-              placeholder="请输入源XML数据"
-              @input="parseSourceTree"
-              :class="{ 'input-error': sourceParseError }"
-          />
-          <div v-if="sourceParseError" style="color: #f56c6c; font-size: 12px; margin-top: 5px; margin-bottom: 10px;">
-            {{ sourceParseError }}
-          </div>
-          <el-divider />
-<!--          <div class="tree-tip">拖拽或双击字段到画布（也可在画布上直接点击"添加节点"按钮）</div>-->
-          <el-input
-              v-model="searchKeyword"
-              placeholder="搜索字段名（支持树和画布）..."
-              clearable
-              style="margin-bottom: 10px;"
-              @input="handleSearch"
-          >
-            <template #prefix>
-              <el-icon><Search /></el-icon>
-            </template>
-          </el-input>
-          <el-tree
-              ref="sourceTreeRef"
-              :data="filteredSourceTreeData"
-              :props="treeProps"
-              node-key="path"
-              :default-expand-all="true"
-              class="data-tree"
-          >
-            <template #default="{ node, data }">
-              <span
-                  class="tree-node"
-                  draggable="true"
-                  @dragstart="handleTreeDragStart($event, data, 'source')"
-                  @dragend="handleTreeDragEnd"
-                  @dblclick="handleTreeNodeDoubleClick(data)"
+          
+          <!-- 输入区域和树区域容器 -->
+          <div class="source-content-wrapper">
+            <!-- 输入区域 -->
+            <div class="source-input-area" :style="{ height: sourceInputHeight + 'px' }">
+              <!-- JSON 模式使用 Monaco Editor -->
+              <div 
+                v-if="sourceProtocol === 'JSON'"
+                id="source-json-monaco-editor" 
+                style="height: 100%; width: 100%; border: 1px solid #dcdfe6; border-radius: 4px;"
+                :class="{ 'input-error': sourceParseError }"
+              ></div>
+              <!-- XML 模式使用普通 textarea -->
+              <el-input
+                  v-else
+                  v-model="sourceJson"
+                  type="textarea"
+                  :rows="10"
+                  placeholder="请输入源XML数据"
+                  @input="parseSourceTree"
+                  :class="{ 'input-error': sourceParseError }"
+                  style="height: 100%;"
+              />
+              <div v-if="sourceParseError" style="color: #f56c6c; font-size: 12px; margin-top: 5px;">
+                {{ sourceParseError }}
+              </div>
+            </div>
+            
+            <!-- 垂直分隔条 -->
+            <div 
+              class="resizer resizer-vertical"
+              @mousedown="startVerticalResize($event)"
+            ></div>
+            
+            <!-- 树区域 -->
+            <div class="source-tree-area" style="flex: 1; display: flex; flex-direction: column; min-height: 0;">
+              <el-input
+                  v-model="searchKeyword"
+                  placeholder="搜索字段名（支持树和画布）..."
+                  clearable
+                  style="margin-bottom: 10px;"
+                  @input="handleSearch"
               >
-                <el-icon><Document /></el-icon>
-                {{ node.label }} ({{ data.type }})
-                <el-icon v-if="isFieldMapped(data.path)" class="mapped-icon" title="已映射">
-                  <Check />
-                </el-icon>
-              </span>
-            </template>
-          </el-tree>
+                <template #prefix>
+                  <el-icon><Search /></el-icon>
+                </template>
+              </el-input>
+              <el-tree
+                  ref="sourceTreeRef"
+                  :data="filteredSourceTreeData"
+                  :props="treeProps"
+                  node-key="path"
+                  :default-expand-all="true"
+                  class="data-tree"
+              >
+                <template #default="{ node, data }">
+                  <span
+                      class="tree-node"
+                      draggable="true"
+                      @dragstart="handleTreeDragStart($event, data, 'source')"
+                      @dragend="handleTreeDragEnd"
+                      @dblclick="handleTreeNodeDoubleClick(data)"
+                  >
+                    <el-icon><Document /></el-icon>
+                    {{ node.label }} ({{ data.type }})
+                    <el-icon v-if="isFieldMapped(data.path)" class="mapped-icon" title="已映射">
+                      <Check />
+                    </el-icon>
+                  </span>
+                </template>
+              </el-tree>
+            </div>
+          </div>
           </div>
         </div>
         
@@ -419,6 +435,7 @@ const sourcePanelCollapsed = ref(false) // 左侧面板折叠状态，默认展�
 const previewPanelCollapsed = ref(false) // 右侧面板折叠状态，默认展开
 const sourcePanelWidth = ref(300) // 源数据面板宽度
 const previewPanelWidth = ref(350) // 预览面板宽度
+const sourceInputHeight = ref(200) // 源数据输入框高度
 const nodeCount = ref(0) // 节点数量，用于判断画布是否为空
 const isCanvasEmpty = computed(() => nodeCount.value === 0)
 
@@ -427,6 +444,11 @@ let isResizingPanels = false
 let resizeDirection = null // 'left' 或 'right'
 let startX = 0
 let startWidth = 0
+
+// 拖动调整输入框高度
+let isResizingVertical = false
+let startY = 0
+let startHeight = 0
 
 const startResize = (direction, e) => {
   isResizingPanels = true
@@ -464,6 +486,39 @@ const stopResize = () => {
   resizeDirection = null
   document.removeEventListener('mousemove', handleResize)
   document.removeEventListener('mouseup', stopResize)
+}
+
+// 开始垂直调整（输入框高度）
+const startVerticalResize = (e) => {
+  isResizingVertical = true
+  startY = e.clientY
+  startHeight = sourceInputHeight.value
+  
+  document.addEventListener('mousemove', handleVerticalResize)
+  document.addEventListener('mouseup', stopVerticalResize)
+  e.preventDefault()
+}
+
+const handleVerticalResize = (e) => {
+  if (!isResizingVertical) return
+  
+  const deltaY = e.clientY - startY
+  const minHeight = 100 // 最小高度
+  const maxHeight = 500 // 最大高度
+  
+  const newHeight = startHeight + deltaY
+  sourceInputHeight.value = Math.max(minHeight, Math.min(maxHeight, newHeight))
+  
+  // 更新 Monaco Editor 布局
+  if (sourceJsonEditor) {
+    sourceJsonEditor.layout()
+  }
+}
+
+const stopVerticalResize = () => {
+  isResizingVertical = false
+  document.removeEventListener('mousemove', handleVerticalResize)
+  document.removeEventListener('mouseup', stopVerticalResize)
 }
 const xmlRootElementName = ref('') // XML根元素名称
 const includeXmlDeclaration = ref(false) // 是否包含XML声明
@@ -3231,6 +3286,39 @@ const loadRulesToCanvas = async (rules) => {
 
 .input-error :deep(.el-textarea__inner):focus {
   border-color: #f56c6c;
+}
+
+/* 源数据内容区域布局 */
+.source-content-wrapper {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.source-input-area {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 垂直分隔条 */
+.resizer-vertical {
+  width: 100%;
+  height: 4px;
+  background-color: #e4e7ed;
+  cursor: row-resize;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+  transition: background-color 0.2s;
+  margin: 5px 0;
+}
+
+.resizer-vertical:hover {
+  background-color: #409eff;
 }
 </style>
 
