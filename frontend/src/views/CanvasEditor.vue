@@ -664,6 +664,11 @@ const graphContainer = ref(null)
 const canvasPanel = ref(null)
 let graph = null
 let minimap = null // 小地图实例
+
+// 高亮功能相关的全局变量和函数（用于数据血缘回溯）
+let highlightNode = null
+let highlightEdge = null
+let clearAllHighlights = null
 let groovyEditor = null // Monaco Editor 实例（Groovy脚本）
 let sourceJsonEditor = null // Monaco Editor 实例（JSON输入）
 let previewResultEditor = null // Monaco Editor 实例（预览结果）
@@ -1364,6 +1369,16 @@ const initPreviewResultEditor = async () => {
         fontSize: 14
       })
 
+      // 添加点击事件监听，实现数据血缘回溯
+      previewResultEditor.onMouseDown((e) => {
+        if (e.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT) {
+          const position = e.target.position
+          if (position) {
+            handlePreviewFieldClick(position)
+          }
+        }
+      })
+
       previewResultEditor.layout()
     } catch (e) {
       console.error("Monaco Preview Editor load error:", e)
@@ -1396,6 +1411,144 @@ const updatePreviewEditor = () => {
       }
     }, 100)
   }
+}
+
+// 从 Monaco 编辑器点击位置获取字段路径
+const getFieldPathFromPosition = (position) => {
+  if (!previewResultEditor) return null
+  
+  const model = previewResultEditor.getModel()
+  if (!model) return null
+  
+  const lineContent = model.getLineContent(position.lineNumber)
+  const column = position.column
+  
+  if (targetProtocol.value === 'JSON') {
+    // JSON 格式：解析字段路径
+    // 从当前位置向前查找，找到最近的引号对
+    let startIdx = column - 1
+    let endIdx = column - 1
+    
+    // 向前查找字段名的开始（引号）
+    while (startIdx >= 0 && lineContent[startIdx] !== '"') {
+      startIdx--
+    }
+    if (startIdx < 0) return null
+    
+    // 向后查找字段名的结束（引号）
+    endIdx = startIdx + 1
+    while (endIdx < lineContent.length && lineContent[endIdx] !== '"') {
+      endIdx++
+    }
+    if (endIdx >= lineContent.length) return null
+    
+    const fieldName = lineContent.substring(startIdx + 1, endIdx)
+    
+    // 构建完整路径：从根对象开始，向上查找所有父级字段
+    const pathParts = [fieldName]
+    let currentLine = position.lineNumber
+    let indent = 0
+    
+    // 计算当前行的缩进
+    for (let i = 0; i < lineContent.length; i++) {
+      if (lineContent[i] === ' ') indent++
+      else if (lineContent[i] === '\t') indent += 2
+      else break
+    }
+    
+    // 向上查找父级字段
+    for (let line = currentLine - 1; line >= 1; line--) {
+      const lineText = model.getLineContent(line).trim()
+      if (!lineText || lineText === '{' || lineText === '[' || lineText === '}' || lineText === ']') continue
+      
+      // 检查是否是父级字段（缩进更少）
+      let parentIndent = 0
+      const parentLineContent = model.getLineContent(line)
+      for (let i = 0; i < parentLineContent.length; i++) {
+        if (parentLineContent[i] === ' ') parentIndent++
+        else if (parentLineContent[i] === '\t') parentIndent += 2
+        else break
+      }
+      
+      if (parentIndent < indent && lineText.includes('"')) {
+        // 提取父级字段名
+        const match = lineText.match(/"([^"]+)"/)
+        if (match) {
+          pathParts.unshift(match[1])
+          indent = parentIndent
+        }
+      }
+      
+      // 如果缩进为0，说明已经到达根级别
+      if (parentIndent === 0) break
+    }
+    
+    return pathParts.join('.')
+  } else {
+    // XML 格式：解析元素路径
+    // 简化实现：从当前行提取标签名
+    const match = lineContent.match(/<([^/>\s]+)/)
+    if (match) {
+      return match[1]
+    }
+    return null
+  }
+}
+
+// 处理预览字段点击事件（数据血缘回溯）
+const handlePreviewFieldClick = (position) => {
+  if (!graph || !highlightNode || !highlightEdge || !clearAllHighlights) return
+  
+  // 清除之前的高亮
+  clearAllHighlights()
+  
+  // 获取字段路径
+  const fieldPath = getFieldPathFromPosition(position)
+  if (!fieldPath) return
+  
+  // 查找对应的目标节点
+  const targetNodes = graph.getNodes().filter(node => {
+    const nodeData = node.getData()
+    if (nodeData?.type !== 'target') return false
+    
+    // 匹配路径（支持完整路径或字段名匹配）
+    const nodePath = nodeData.path || ''
+    return nodePath === fieldPath || nodePath.endsWith('.' + fieldPath) || nodePath === fieldPath.split('.').pop()
+  })
+  
+  if (targetNodes.length === 0) {
+    ElMessage.info(`未找到字段 "${fieldPath}" 对应的映射规则`)
+    return
+  }
+  
+  // 高亮所有匹配的目标节点
+  targetNodes.forEach(targetNode => {
+    highlightNode(targetNode)
+    
+    // 找到连接到该目标节点的所有边
+    const edges = graph.getEdges().filter(edge => {
+      return edge.getTargetCellId() === targetNode.id
+    })
+    
+    edges.forEach(edge => {
+      highlightEdge(edge)
+      
+      // 找到边的源节点
+      const sourceNodeId = edge.getSourceCellId()
+      const sourceNode = graph.getCellById(sourceNodeId)
+      if (sourceNode) {
+        highlightNode(sourceNode)
+      }
+    })
+  })
+  
+  // 自动滚动到第一个高亮的节点
+  if (targetNodes.length > 0) {
+    const firstNode = targetNodes[0]
+    graph.centerCell(firstNode)
+  }
+  
+  ElMessage.success(`已高亮显示字段 "${fieldPath}" 的数据血缘关系`)
 }
 
 const initGraph = () => {
@@ -1532,9 +1685,14 @@ const initGraph = () => {
   // --- 线条高亮功能 ---
   // 保存边的原始样式
   const edgeOriginalStyles = new Map()
+  // 保存节点的原始样式（用于数据血缘回溯）
+  const nodeOriginalStyles = new Map()
+  // 当前高亮的节点和边（用于取消高亮）
+  const highlightedNodes = new Set()
+  const highlightedEdges = new Set()
   
-  // 高亮边
-  const highlightEdge = (edge) => {
+  // 高亮边（提升到外部作用域）
+  highlightEdge = (edge) => {
     if (!edge) return
     
     // 保存原始样式（如果还没有保存）
@@ -1602,6 +1760,78 @@ const initGraph = () => {
     allEdges.forEach(edge => {
       restoreEdge(edge)
     })
+  }
+
+  // 高亮节点（提升到外部作用域）
+  highlightNode = (node) => {
+    if (!node) return
+    
+    // 保存原始样式（如果还没有保存）
+    if (!nodeOriginalStyles.has(node.id)) {
+      const attrs = node.getAttrs()
+      nodeOriginalStyles.set(node.id, {
+        fill: attrs.body?.fill || (node.getData()?.type === 'source' ? '#e3f2fd' : '#f3e5f5'),
+        stroke: attrs.body?.stroke || (node.getData()?.type === 'source' ? '#2196f3' : '#9c27b0'),
+        strokeWidth: attrs.body?.strokeWidth || 1
+      })
+    }
+    
+    // 高亮显示（改变颜色和边框）
+    node.setAttrs({
+      body: {
+        fill: '#fff3cd', // 黄色背景
+        stroke: '#ffc107', // 黄色边框
+        strokeWidth: 3 // 加粗边框
+      }
+    })
+    
+    highlightedNodes.add(node.id)
+  }
+  
+  // 恢复节点的原始样式
+  const restoreNode = (node) => {
+    if (!node) return
+    
+    const originalStyle = nodeOriginalStyles.get(node.id)
+    if (originalStyle) {
+      node.setAttrs({
+        body: {
+          fill: originalStyle.fill,
+          stroke: originalStyle.stroke,
+          strokeWidth: originalStyle.strokeWidth
+        }
+      })
+    } else {
+      // 如果没有保存的样式，使用默认样式
+      const nodeType = node.getData()?.type
+      const defaultFill = nodeType === 'source' ? '#e3f2fd' : '#f3e5f5'
+      const defaultStroke = nodeType === 'source' ? '#2196f3' : '#9c27b0'
+      node.setAttrs({
+        body: {
+          fill: defaultFill,
+          stroke: defaultStroke,
+          strokeWidth: 1
+        }
+      })
+    }
+    
+    highlightedNodes.delete(node.id)
+  }
+  
+  // 恢复所有节点的原始样式
+  const restoreAllNodes = () => {
+    const allNodes = graph.getNodes()
+    allNodes.forEach(node => {
+      restoreNode(node)
+    })
+    highlightedNodes.clear()
+  }
+  
+  // 清除所有高亮（节点和边）（提升到外部作用域）
+  clearAllHighlights = () => {
+    restoreAllNodes()
+    restoreAllEdges()
+    highlightedEdges.clear()
   }
   
   // 监听边的鼠标悬停事件
