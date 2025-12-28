@@ -2723,25 +2723,107 @@ const openNodeEditDialog = (node) => {
   currentNodeToEdit = node
   const data = node.getData()
   currentNodeEditType.value = data.type || '' // 保存节点类型
+  const fieldName = node.attr('text/text') || ''
+  const path = data.path || ''
+  
   currentNodeEdit.value = { 
-    fieldName: node.attr('text/text') || '', 
-    path: data.path || '' 
+    fieldName: fieldName, 
+    path: path
   }
+  
+  // 如果是源节点，确保源数据中有这个字段
+  if (currentNodeEditType.value === 'source' && fieldName) {
+    // 检查源数据中是否存在该字段
+    let fieldExists = false
+    try {
+      if (sourceJson.value.trim()) {
+        let currentData = {}
+        if (sourceProtocol.value === 'XML') {
+          currentData = parseXmlToObject(sourceJson.value)
+        } else {
+          // JSON模式：从Monaco Editor获取内容，如果没有则从sourceJson获取
+          let jsonText = sourceJson.value
+          if (sourceJsonEditor) {
+            jsonText = sourceJsonEditor.getValue()
+          }
+          if (jsonText.trim()) {
+            currentData = JSON.parse(jsonText)
+          }
+        }
+        
+        // 检查字段是否存在（通过路径或字段名）
+        const normalizedPath = path.replace(/^\$\.?/, '')
+        const pathParts = normalizedPath.split('.')
+        
+        // 递归检查路径是否存在
+        let current = currentData
+        fieldExists = true
+        for (let i = 0; i < pathParts.length; i++) {
+          const part = pathParts[i].replace(/\[.*?\]/g, '') // 移除数组索引
+          if (current && typeof current === 'object' && part in current) {
+            current = current[part]
+          } else {
+            fieldExists = false
+            break
+          }
+        }
+      }
+    } catch (e) {
+      // 解析失败，字段不存在
+      fieldExists = false
+    }
+    
+    // 如果字段不存在，自动添加到源数据
+    if (!fieldExists) {
+      addFieldToSourceData(fieldName)
+    }
+  }
+  
+  // 如果是目标节点，触发预览更新以确保输出中包含该字段
+  if (currentNodeEditType.value === 'target' && fieldName) {
+    // 目标节点的字段会在预览时自动生成，这里只需要确保预览已更新
+    nextTick(() => {
+      updatePreview()
+    })
+  }
+  
   nodeEditVisible.value = true
 }
 
 const saveNodeEdit = () => {
   if (!currentNodeToEdit) return
   
+  const oldData = currentNodeToEdit.getData()
+  const oldFieldName = currentNodeToEdit.attr('text/text') || ''
+  const oldPath = oldData.path || ''
+  const newFieldName = currentNodeEdit.value.fieldName.trim()
+  const newPath = currentNodeEdit.value.path.trim() || newFieldName
+  
   // 更新节点文本标签
-  currentNodeToEdit.attr('text/text', currentNodeEdit.value.fieldName)
+  currentNodeToEdit.attr('text/text', newFieldName)
   
   // 更新节点数据（包括路径）
-  const currentData = currentNodeToEdit.getData()
   currentNodeToEdit.setData({ 
-    ...currentData, 
-    path: currentNodeEdit.value.path || currentNodeEdit.value.fieldName
+    ...oldData, 
+    path: newPath
   })
+  
+  // 如果是源节点，且字段名或路径发生变化，需要同步更新源数据
+  if (currentNodeEditType.value === 'source') {
+    // 如果字段名发生变化，需要更新源数据
+    if (oldFieldName !== newFieldName || oldPath !== newPath) {
+      // 确保源数据中有新字段
+      addFieldToSourceData(newFieldName)
+      
+      // 如果字段名变化了，需要重新解析树（因为字段名可能已经改变）
+      nextTick(() => {
+        parseSourceTree()
+      })
+    }
+  }
+  
+  // 更新映射状态
+  updateMappedPaths()
   
   nodeEditVisible.value = false
   nextTick(() => updatePreview())
@@ -3194,6 +3276,9 @@ const loadConfigToCanvas = async (configId) => {
       return
     }
     
+    // 收集所有源字段，用于生成源数据
+    const sourceFields = new Set()
+    
     const entity = res.data.data
     // 保存配置实体，用于编辑时填充表单
     currentConfigEntity.value = entity
@@ -3222,6 +3307,13 @@ const loadConfigToCanvas = async (configId) => {
     await nextTick()
     await loadRulesToCanvas(config.rules || [])
     
+    // 等待源数据生成完成后，自动更新预览
+    setTimeout(() => {
+      if (sourceJson.value && sourceJson.value.trim()) {
+        updatePreview()
+      }
+    }, 300)
+    
     ElMessage.success('配置加载成功')
   } catch (e) {
     console.error('加载配置失败:', e)
@@ -3232,6 +3324,9 @@ const loadConfigToCanvas = async (configId) => {
 // 将规则加载到画布
 const loadRulesToCanvas = async (rules) => {
   if (!graph || !rules || rules.length === 0) return
+  
+  // 收集所有源字段，用于生成源数据
+  const sourceFields = new Set()
   
   // 创建节点映射：sourcePath/targetPath -> nodeId
   const sourceNodeMap = new Map()
@@ -3246,13 +3341,17 @@ const loadRulesToCanvas = async (rules) => {
     if (rule.sourcePath) {
       const sourcePath = rule.sourcePath.replace(/^\$\./, '')
       const sourcePathKey = sourcePath
+      
+      // 提取字段名（路径的最后一部分）
+      const fieldName = sourcePath.split('.').pop() || sourcePath
+      
+      // 收集源字段名（用于生成源数据）
+      sourceFields.add(fieldName)
+      
       if (!sourceNodeMap.has(sourcePathKey)) {
         const nodeId = `s_${++nodeCounter}`
         const x = 50
         const y = 50 + (currentRow * ROW_HEIGHT)
-        
-        // 提取字段名（路径的最后一部分）
-        const fieldName = sourcePath.split('.').pop() || sourcePath
         
         graph.addNode({
           id: nodeId,
@@ -3305,11 +3404,15 @@ const loadRulesToCanvas = async (rules) => {
     if (rule.additionalSources && Array.isArray(rule.additionalSources)) {
       rule.additionalSources.forEach(additionalPath => {
         const sourcePathKey = additionalPath.replace(/^\$\./, '')
+        const fieldName = sourcePathKey.split('.').pop() || sourcePathKey
+        
+        // 收集源字段名（用于生成源数据）
+        sourceFields.add(fieldName)
+        
         if (!sourceNodeMap.has(sourcePathKey)) {
           const nodeId = `s_${++nodeCounter}`
           const x = 50
           const y = 50 + (currentRow * ROW_HEIGHT)
-          const fieldName = sourcePathKey.split('.').pop() || sourcePathKey
           
           graph.addNode({
             id: nodeId,
@@ -3416,6 +3519,46 @@ const loadRulesToCanvas = async (rules) => {
   
   // 更新映射状态
   updateMappedPaths()
+  
+  // 根据收集的源字段，自动生成源数据
+  if (sourceFields.size > 0) {
+    // 使用 setTimeout 确保在画布更新完成后再更新源数据
+    setTimeout(() => {
+      // 遍历所有源字段，确保它们都在源数据中
+      sourceFields.forEach(fieldName => {
+        addFieldToSourceData(fieldName)
+      })
+      
+      // 等待源数据更新后，重新解析树
+      nextTick(() => {
+        parseSourceTree()
+        // 如果使用Monaco Editor，需要更新编辑器
+        if (sourceJsonEditor && sourceProtocol.value === 'JSON') {
+          const currentValue = sourceJson.value
+          if (sourceJsonEditor.getValue() !== currentValue) {
+            sourceJsonEditor.setValue(currentValue)
+            setTimeout(() => {
+              sourceJsonEditor.getAction('editor.action.formatDocument').run().catch(() => {})
+            }, 100)
+          }
+        }
+        
+        // 源数据更新后，自动更新预览输出
+        if (sourceJson.value && sourceJson.value.trim()) {
+          setTimeout(() => {
+            updatePreview()
+          }, 200)
+        }
+      })
+    }, 100)
+  } else {
+    // 即使没有新字段，如果已有源数据，也更新预览
+    if (sourceJson.value && sourceJson.value.trim()) {
+      setTimeout(() => {
+        updatePreview()
+      }, 200)
+    }
+  }
 }
 </script>
 
