@@ -8,7 +8,7 @@
 <!--      </template>-->
 
       <div class="editor-container">
-        <div class="source-panel" :class="{ 'collapsed': sourcePanelCollapsed }">
+        <div class="source-panel" :class="{ 'collapsed': sourcePanelCollapsed }" :style="{ width: sourcePanelCollapsed ? '50px' : sourcePanelWidth + 'px' }">
           <div class="panel-header">
             <h3>源数据</h3>
             <el-button
@@ -71,6 +71,13 @@
           </el-tree>
           </div>
         </div>
+        
+        <!-- 左侧分隔条 -->
+        <div 
+          v-if="!sourcePanelCollapsed"
+          class="resizer resizer-left"
+          @mousedown="startResize('left', $event)"
+        ></div>
 
         <div
             ref="canvasPanel"
@@ -103,8 +110,15 @@
             拖拽或双击字段到画布（也可在画布上直接点击"添加节点"按钮）
           </div>
         </div>
+        
+        <!-- 右侧分隔条 -->
+        <div 
+          v-if="!previewPanelCollapsed"
+          class="resizer resizer-right"
+          @mousedown="startResize('right', $event)"
+        ></div>
 
-        <div class="preview-panel" :class="{ 'collapsed': previewPanelCollapsed }">
+        <div class="preview-panel" :class="{ 'collapsed': previewPanelCollapsed }" :style="{ width: previewPanelCollapsed ? '50px' : previewPanelWidth + 'px' }">
           <div class="panel-header">
             <h3>转换预览</h3>
             <el-button
@@ -383,8 +397,54 @@ const sourceProtocol = ref('JSON') // 源协议类型：JSON 或 XML
 const targetProtocol = ref('JSON') // 目标协议类型：JSON 或 XML
 const sourcePanelCollapsed = ref(false) // 左侧面板折叠状态，默认展开
 const previewPanelCollapsed = ref(false) // 右侧面板折叠状态，默认展开
+const sourcePanelWidth = ref(300) // 源数据面板宽度
+const previewPanelWidth = ref(350) // 预览面板宽度
 const nodeCount = ref(0) // 节点数量，用于判断画布是否为空
 const isCanvasEmpty = computed(() => nodeCount.value === 0)
+
+// 拖动调整面板宽度
+let isResizingPanels = false
+let resizeDirection = null // 'left' 或 'right'
+let startX = 0
+let startWidth = 0
+
+const startResize = (direction, e) => {
+  isResizingPanels = true
+  resizeDirection = direction
+  startX = e.clientX
+  if (direction === 'left') {
+    startWidth = sourcePanelWidth.value
+  } else {
+    startWidth = previewPanelWidth.value
+  }
+  
+  document.addEventListener('mousemove', handleResize)
+  document.addEventListener('mouseup', stopResize)
+  e.preventDefault()
+}
+
+const handleResize = (e) => {
+  if (!isResizingPanels) return
+  
+  const deltaX = e.clientX - startX
+  const minWidth = 200 // 最小宽度
+  const maxWidth = 800 // 最大宽度
+  
+  if (resizeDirection === 'left') {
+    const newWidth = startWidth + deltaX
+    sourcePanelWidth.value = Math.max(minWidth, Math.min(maxWidth, newWidth))
+  } else {
+    const newWidth = startWidth - deltaX
+    previewPanelWidth.value = Math.max(minWidth, Math.min(maxWidth, newWidth))
+  }
+}
+
+const stopResize = () => {
+  isResizingPanels = false
+  resizeDirection = null
+  document.removeEventListener('mousemove', handleResize)
+  document.removeEventListener('mouseup', stopResize)
+}
 const xmlRootElementName = ref('') // XML根元素名称
 const includeXmlDeclaration = ref(false) // 是否包含XML声明
 const graphContainer = ref(null)
@@ -2596,18 +2656,18 @@ const loadRulesToCanvas = async (rules) => {
   padding: 0;
 }
 .source-panel { 
-  width: 300px; 
   display: flex; 
   flex-direction: column; 
-  /* transition: width 0.3s ease; 已删除，改用 JS 控制 */
-  border: 1px solid #ddd;
-  border-radius: 4px;
+  border: none;
+  border-right: 1px solid #ddd;
+  border-radius: 0;
   background-color: #fff;
   overflow: hidden;
   flex-shrink: 0;
+  transition: width 0.2s ease;
 }
 .source-panel.collapsed {
-  width: 50px;
+  width: 50px !important;
 }
 .source-panel.collapsed .panel-header {
   justify-content: center;
@@ -2660,19 +2720,18 @@ const loadRulesToCanvas = async (rules) => {
   white-space: nowrap;
 }
 .preview-panel { 
-  width: 350px; 
   display: flex; 
   flex-direction: column; 
-  /* transition: width 0.3s ease; 已删除，改用 JS 控制 */
   border: none;
   border-left: 1px solid #ddd;
   border-radius: 0;
   background-color: #fff;
   overflow: hidden;
   flex-shrink: 0;
+  transition: width 0.2s ease;
 }
 .preview-panel.collapsed {
-  width: 50px;
+  width: 50px !important;
 }
 .preview-panel.collapsed .panel-header {
   justify-content: center;
@@ -2783,5 +2842,28 @@ const loadRulesToCanvas = async (rules) => {
 .monaco-editor .suggest-widget {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
   border: 1px solid #dcdfe6 !important;
+}
+
+/* 分隔条样式 */
+.resizer {
+  width: 4px;
+  background-color: #e4e7ed;
+  cursor: col-resize;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+  transition: background-color 0.2s;
+}
+
+.resizer:hover {
+  background-color: #409eff;
+}
+
+.resizer-left {
+  border-right: 1px solid #ddd;
+}
+
+.resizer-right {
+  border-left: 1px solid #ddd;
 }
 </style>
