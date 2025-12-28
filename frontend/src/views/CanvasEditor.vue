@@ -1,12 +1,11 @@
 <template>
   <div class="canvas-editor">
     <el-card class="editor-card">
-      <template #header>
-        <div class="card-header">
-          <span>报文映射画布编辑器</span>
-          <el-button @click="openSaveConfigDialog">{{ currentConfigId ? '修改配置' : '保存配置' }}</el-button>
-        </div>
-      </template>
+<!--      <template #header>-->
+<!--        <div class="card-header">-->
+<!--          <span>报文映射画布编辑器</span>-->
+<!--        </div>-->
+<!--      </template>-->
 
       <div class="editor-container">
         <div class="source-panel" :class="{ 'collapsed': sourcePanelCollapsed }">
@@ -34,7 +33,7 @@
               @input="parseSourceTree"
           />
           <el-divider />
-          <div class="tree-tip">拖拽或双击字段到画布（也可在画布上直接点击"添加节点"按钮）</div>
+<!--          <div class="tree-tip">拖拽或双击字段到画布（也可在画布上直接点击"添加节点"按钮）</div>-->
           <el-input
               v-model="searchKeyword"
               placeholder="搜索字段名（支持树和画布）..."
@@ -96,8 +95,13 @@
               <el-icon><ZoomOut /></el-icon>
               缩小
             </el-button>
+            <el-button type="primary" size="small"  @click="openSaveConfigDialog">{{ currentConfigId ? '修改配置' : '保存配置' }}</el-button>
+
           </div>
           <div ref="graphContainer" class="graph-container"></div>
+          <div v-if="isCanvasEmpty" class="canvas-empty-tip">
+            拖拽或双击字段到画布（也可在画布上直接点击"添加节点"按钮）
+          </div>
         </div>
 
         <div class="preview-panel" :class="{ 'collapsed': previewPanelCollapsed }">
@@ -379,6 +383,8 @@ const sourceProtocol = ref('JSON') // 源协议类型：JSON 或 XML
 const targetProtocol = ref('JSON') // 目标协议类型：JSON 或 XML
 const sourcePanelCollapsed = ref(false) // 左侧面板折叠状态，默认展开
 const previewPanelCollapsed = ref(false) // 右侧面板折叠状态，默认展开
+const nodeCount = ref(0) // 节点数量，用于判断画布是否为空
+const isCanvasEmpty = computed(() => nodeCount.value === 0)
 const xmlRootElementName = ref('') // XML根元素名称
 const includeXmlDeclaration = ref(false) // 是否包含XML声明
 const graphContainer = ref(null)
@@ -922,6 +928,7 @@ const initGraph = () => {
     nextTick(() => updatePreview())
   })
   graph.on('node:removed', () => {
+    nodeCount.value = graph.getNodes().length
     updateMappedPaths()
     updateMinimapVisibility() // 更新小地图显示状态
     nextTick(() => updatePreview())
@@ -937,6 +944,7 @@ const initGraph = () => {
   
   // 监听节点添加事件，更新映射状态
   graph.on('node:added', () => {
+    nodeCount.value = graph.getNodes().length
     updateMappedPaths()
     updateMinimapVisibility() // 更新小地图显示状态
   })
@@ -2342,6 +2350,7 @@ const loadConfigToCanvas = async (configId) => {
     // 清空画布
     if (graph) {
       graph.clearCells()
+      nodeCount.value = 0
     }
     nodeCounter = 0
     autoLayoutCount = 0 // 重置布局计数器
@@ -2459,6 +2468,9 @@ const loadRulesToCanvas = async (rules) => {
     }
   })
   
+  // 更新节点数量
+  nodeCount.value = graph.getNodes().length
+  
   // 第二步：创建所有边
   rules.forEach((rule) => {
     if (rule.mappingType === 'MANY_TO_ONE' && rule.additionalSources) {
@@ -2545,9 +2557,44 @@ const loadRulesToCanvas = async (rules) => {
 </script>
 
 <style scoped>
-.canvas-editor { padding: 20px; }
-.editor-card { height: calc(100vh - 100px); }
-.editor-container { display: flex; gap: 20px; height: calc(100vh - 200px); }
+.canvas-editor { 
+  padding: 0; 
+  margin: 0;
+  height: 100vh;
+  overflow: hidden;
+}
+.editor-card { 
+  height: 100vh; 
+  margin: 0;
+  border: none;
+  border-radius: 0;
+}
+:deep(.el-card__header) {
+  padding: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+}
+:deep(.el-card__body) {
+  padding: 0 !important;
+  margin: 0 !important;
+  height: calc(100vh - 60px);
+}
+.card-header {
+  padding: 15px 20px;
+  margin: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #fff;
+  border-bottom: 1px solid #e4e7ed;
+}
+.editor-container { 
+  display: flex; 
+  gap: 0;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
 .source-panel { 
   width: 300px; 
   display: flex; 
@@ -2574,8 +2621,10 @@ const loadRulesToCanvas = async (rules) => {
   flex-direction: column;
   overflow: hidden; /* 极其重要 */
   position: relative; /* 为子元素提供基准 */
-  border: 1px solid #ddd; 
-  border-radius: 4px; 
+  border: none;
+  border-left: 1px solid #ddd;
+  border-right: 1px solid #ddd;
+  border-radius: 0; 
 }
 .canvas-toolbar { 
   padding: 10px; 
@@ -2598,13 +2647,26 @@ const loadRulesToCanvas = async (rules) => {
   background-color: #fafafa; 
   overflow: hidden;
 }
+.canvas-empty-tip {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #909399;
+  font-size: 14px;
+  pointer-events: none;
+  z-index: 1;
+  text-align: center;
+  white-space: nowrap;
+}
 .preview-panel { 
   width: 350px; 
   display: flex; 
   flex-direction: column; 
   /* transition: width 0.3s ease; 已删除，改用 JS 控制 */
-  border: 1px solid #ddd;
-  border-radius: 4px;
+  border: none;
+  border-left: 1px solid #ddd;
+  border-radius: 0;
   background-color: #fff;
   overflow: hidden;
   flex-shrink: 0;
