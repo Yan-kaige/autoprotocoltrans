@@ -128,6 +128,13 @@
               <el-icon><Plus /></el-icon>
               添加节点
             </el-button>
+            <el-switch
+              v-model="autoMappingMode"
+              active-text="自动映射"
+              inactive-text="手动映射"
+              style="margin-left: 10px;"
+              @change="onAutoMappingModeChange"
+            />
             <el-button size="small" @click="zoomToFit">
               <el-icon><FullScreen /></el-icon>
               自适应视野
@@ -418,7 +425,7 @@ import { ref, onMounted, nextTick, onUnmounted, watch, computed } from 'vue'
 import { Graph } from '@antv/x6'
 import { Selection } from '@antv/x6-plugin-selection'
 import { MiniMap } from '@antv/x6-plugin-minimap'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Document, Delete, Plus, ArrowLeft, ArrowRight, FullScreen, ZoomIn, ZoomOut, Search, Check, Edit, Setting } from '@element-plus/icons-vue'
 import { transformV2Api, configApi, dictionaryApi, functionApi } from '../api'
 import { useRoute, useRouter } from 'vue-router'
@@ -436,6 +443,7 @@ const previewPanelCollapsed = ref(false) // 右侧面板折叠状态，默认展
 const sourcePanelWidth = ref(300) // 源数据面板宽度
 const previewPanelWidth = ref(350) // 预览面板宽度
 const sourceInputHeight = ref(200) // 源数据输入框高度
+const autoMappingMode = ref(false) // 自动映射模式
 const nodeCount = ref(0) // 节点数量，用于判断画布是否为空
 const isCanvasEmpty = computed(() => nodeCount.value === 0)
 
@@ -1466,6 +1474,13 @@ const parseSourceTree = () => {
     if (sourceProtocol.value === 'XML') {
       console.log('XML解析后的结构:', JSON.stringify(data, null, 2))
     }
+    
+    // 如果启用了自动映射模式，自动生成映射规则
+    if (autoMappingMode.value && sourceProtocol.value === 'JSON') {
+      nextTick(() => {
+        generateAutoMapping()
+      })
+    }
   } catch (e) { 
     console.error('解析失败:', e)
     sourceTreeData.value = []
@@ -2086,7 +2101,168 @@ const createNodePair = (x, y, fieldName = 'newField', sourcePath = null) => {
   nextTick(() => {
     updatePreview()
     updateMappedPaths() // 更新映射状态
+    nodeCount.value += 2 // 增加节点计数（创建了一对节点）
   })
+}
+
+/**
+ * 递归收集树中所有叶子节点（字段）
+ */
+const collectAllFields = (node, fields = []) => {
+  // 如果是叶子节点（没有children或children为空），且不是根节点
+  if ((!node.children || node.children.length === 0) && node.path && node.path !== '$') {
+    fields.push({
+      label: node.label,
+      path: node.path,
+      type: node.type
+    })
+  } else if (node.children && node.children.length > 0) {
+    // 递归处理子节点
+    node.children.forEach(child => {
+      collectAllFields(child, fields)
+    })
+  }
+  return fields
+}
+
+/**
+ * 自动生成映射规则
+ */
+const generateAutoMapping = () => {
+  if (!graph || !sourceTreeData.value || sourceTreeData.value.length === 0) {
+    return
+  }
+  
+  // 收集所有字段
+  const allFields = []
+  sourceTreeData.value.forEach(rootNode => {
+    if (rootNode.children) {
+      rootNode.children.forEach(child => {
+        collectAllFields(child, allFields)
+      })
+    }
+  })
+  
+  if (allFields.length === 0) {
+    ElMessage.warning('未找到可映射的字段')
+    return
+  }
+  
+  // 如果画布已有内容，询问是否清空
+  if (nodeCount.value > 0) {
+    ElMessageBox.confirm(
+      '画布已有内容，自动映射将清空现有内容并重新生成，是否继续？',
+      '提示',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    ).then(() => {
+      // 清空画布
+      graph.clearCells()
+      nodeCount.value = 0
+      nodeCounter = 0
+      
+      // 生成映射
+      doGenerateAutoMapping(allFields)
+    }).catch(() => {
+      // 用户取消，关闭自动映射模式
+      autoMappingMode.value = false
+    })
+  } else {
+    // 直接生成映射
+    doGenerateAutoMapping(allFields)
+  }
+}
+
+/**
+ * 执行自动映射生成
+ */
+const doGenerateAutoMapping = (fields) => {
+  if (!graph) return
+  
+  // 优化布局参数：每行只放1个节点对，确保不重叠
+  const nodeWidth = 140
+  const nodeHeight = 40
+  const sourceX = 100 // 源节点起始X坐标
+  const targetX = 400 // 目标节点起始X坐标
+  const startY = 100 // 起始Y坐标
+  const rowHeight = 100 // 行高（节点高度40 + 间距60）
+  const horizontalGap = 100 // 源节点和目标节点之间的水平间距
+  
+  fields.forEach((field, index) => {
+    const y = startY + index * rowHeight
+    
+    // 提取字段名（从路径中获取最后一部分）
+    const pathParts = field.path.split('.')
+    const fieldName = pathParts[pathParts.length - 1].replace(/\[.*?\]/g, '') // 移除数组索引
+    
+    // 创建节点对
+    const sId = `s_${++nodeCounter}`
+    const tId = `t_${++nodeCounter}`
+    
+    // 1. 源节点（左侧）
+    graph.addNode({
+      id: sId,
+      x: sourceX,
+      y: y,
+      width: nodeWidth,
+      height: nodeHeight,
+      label: fieldName,
+      data: { type: 'source', path: field.path },
+      ports: {
+        groups: { right: { position: 'right', attrs: { circle: { r: 4, magnet: true, stroke: '#2196f3', fill: '#fff' } } } },
+        items: [{ id: 'p1', group: 'right' }]
+      },
+      attrs: { body: { fill: '#e3f2fd', stroke: '#2196f3', rx: 4 }, text: { text: fieldName, fontSize: 12 } }
+    })
+    
+    // 2. 目标节点（右侧）
+    graph.addNode({
+      id: tId,
+      x: targetX,
+      y: y,
+      width: nodeWidth,
+      height: nodeHeight,
+      label: fieldName,
+      data: { type: 'target', path: fieldName },
+      ports: {
+        groups: { left: { position: 'left', attrs: { circle: { r: 4, magnet: true, stroke: '#9c27b0', fill: '#fff' } } } },
+        items: [{ id: 'p1', group: 'left' }]
+      },
+      attrs: { body: { fill: '#f3e5f5', stroke: '#9c27b0', rx: 4 }, text: { text: fieldName, fontSize: 12 } }
+    })
+    
+    // 3. 连线
+    graph.addEdge({
+      source: { cell: sId, port: 'p1' },
+      target: { cell: tId, port: 'p1' },
+      attrs: { line: { stroke: '#8f8f8f', strokeWidth: 2 } },
+      data: { mappingType: 'ONE_TO_ONE', transformType: 'DIRECT', transformConfig: {} },
+      labels: [{ attrs: { text: { text: 'DIRECT', fontSize: 10 } } }]
+    })
+    
+    nodeCount.value += 2 // 增加节点计数
+  })
+  
+  // 更新映射状态和预览
+  nextTick(() => {
+    updateMappedPaths()
+    updatePreview()
+    zoomToFit() // 自动适应视野
+    ElMessage.success(`已自动生成 ${fields.length} 个映射规则`)
+  })
+}
+
+/**
+ * 自动映射模式切换
+ */
+const onAutoMappingModeChange = (value) => {
+  if (value && sourceTreeData.value && sourceTreeData.value.length > 0 && sourceProtocol.value === 'JSON') {
+    // 如果开启自动映射且已有解析的JSON数据，立即生成映射
+    generateAutoMapping()
+  }
 }
 
 /**
