@@ -322,10 +322,21 @@
         
         <!-- Groovy脚本配置 -->
         <el-form-item v-show="currentEdgeConfig.transformType === 'GROOVY'" label="Groovy脚本">
-          <div 
-            id="groovy-monaco-editor" 
-            style="height: 400px; width: 100%; border: 1px solid #dcdfe6; border-radius: 4px; pointer-events: auto !important;"
-          ></div>
+          <div class="monaco-wrapper" :class="{ 'is-fullscreen': isEditorFullScreen }">
+            <div class="monaco-toolbar" v-show="!isEditorFullScreen">
+              <el-button 
+                link 
+                :icon="FullScreen" 
+                @click="toggleEditorFullScreen"
+              >
+                全屏编辑
+              </el-button>
+            </div>
+            <div 
+              id="groovy-monaco-editor" 
+              style="width: 100%; pointer-events: auto !important;"
+            ></div>
+          </div>
           <div style="font-size: 12px; color: #999; margin-top: 5px;">
             <div><strong>变量说明：</strong></div>
             <div>• input: 输入的字段值（单个值或List）</div>
@@ -545,7 +556,7 @@ import { Graph } from '@antv/x6'
 import { Selection } from '@antv/x6-plugin-selection'
 import { MiniMap } from '@antv/x6-plugin-minimap'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Document, Delete, Plus, ArrowLeft, ArrowRight, FullScreen, ZoomIn, ZoomOut, Search, Check, Edit, Setting } from '@element-plus/icons-vue'
+import { Document, Delete, Plus, ArrowLeft, ArrowRight, FullScreen, ZoomIn, ZoomOut, Search, Check, Edit, Setting, Close } from '@element-plus/icons-vue'
 import { transformV2Api, configApi, dictionaryApi, functionApi } from '../api'
 import { useRoute, useRouter } from 'vue-router'
 import loader from '@monaco-editor/loader'
@@ -847,6 +858,9 @@ const edgeConfigVisible = ref(false)
 const nodeEditVisible = ref(false)
 const addNodeDialogVisible = ref(false)
 let currentNodeToEdit = null
+
+// Monaco 编辑器全屏状态
+const isEditorFullScreen = ref(false)
 const currentNodeEdit = ref({ fieldName: '', path: '' })
 const currentNodeEditType = ref('') // 'source' 或 'target'
 const addNodeForm = ref({
@@ -1001,6 +1015,87 @@ watch([sourcePanelCollapsed, previewPanelCollapsed], () => {
   })
 })
 
+// 监听抽屉打开/关闭事件，初始化 Groovy 编辑器
+watch(() => edgeConfigVisible.value, (val) => {
+  if (val) {
+    nextTick(() => initGroovyEditor())
+  } else {
+    // 抽屉关闭时强制退出全屏，防止死锁
+    if (isEditorFullScreen.value) {
+      isEditorFullScreen.value = false
+      // 清理 ESC 键监听器
+      if (escKeyHandler) {
+        document.removeEventListener('keydown', escKeyHandler)
+        escKeyHandler = null
+      }
+    }
+  }
+})
+
+// 监听全屏状态变化，重新布局编辑器
+watch(() => isEditorFullScreen.value, () => {
+  nextTick(() => {
+    setTimeout(() => {
+      if (groovyEditor) {
+        const domElement = document.getElementById('groovy-monaco-editor')
+        if (domElement) {
+          const rect = domElement.getBoundingClientRect()
+          groovyEditor.layout({
+            width: rect.width,
+            height: rect.height
+          })
+          groovyEditor.focus()
+        }
+      }
+    }, 50)
+  })
+})
+
+// ESC 键退出全屏的监听器
+let escKeyHandler = null
+
+// 切换编辑器全屏状态
+const toggleEditorFullScreen = () => {
+  isEditorFullScreen.value = !isEditorFullScreen.value
+  
+  // 全屏时添加 ESC 键监听，退出全屏时移除
+  if (isEditorFullScreen.value) {
+    escKeyHandler = (e) => {
+      if (e.key === 'Escape' && isEditorFullScreen.value) {
+        toggleEditorFullScreen()
+      }
+    }
+    document.addEventListener('keydown', escKeyHandler)
+  } else {
+    if (escKeyHandler) {
+      document.removeEventListener('keydown', escKeyHandler)
+      escKeyHandler = null
+    }
+  }
+  
+  // 关键：Monaco 不会自动跟随 DOM 变化调整尺寸
+  // 必须在 DOM 更新后的 nextTick 调用 layout()
+  // 使用 setTimeout 确保 CSS 过渡完成后再重新布局
+  nextTick(() => {
+    setTimeout(() => {
+      if (groovyEditor) {
+        // 强制重新计算尺寸
+        const domElement = document.getElementById('groovy-monaco-editor')
+        if (domElement) {
+          // 先获取容器的实际尺寸
+          const rect = domElement.getBoundingClientRect()
+          // 调用 layout 重新计算
+          groovyEditor.layout({
+            width: rect.width,
+            height: rect.height
+          })
+          groovyEditor.focus() // 切换后保持焦点，方便继续输入
+        }
+      }
+    }, 50) // 给 CSS 过渡一点时间
+  })
+}
+
 // 监听类型切换，如果是手动切换到 GROOVY，也调用初始化
 watch(() => currentEdgeConfig.value.transformType, (newType) => {
   if (newType === 'GROOVY' && edgeConfigVisible.value) {
@@ -1113,6 +1208,28 @@ const initGroovyEditor = async () => {
           groovyEditor.focus()
         }
       }, true)
+
+      // 添加 F11 快捷键支持全屏切换
+      groovyEditor.addAction({
+        id: 'toggle-fullscreen',
+        label: 'Toggle Full Screen',
+        keybindings: [monaco.KeyCode.F11],
+        run: () => {
+          toggleEditorFullScreen()
+        }
+      })
+      
+      // ESC 键退出全屏（只在全屏时生效）
+      groovyEditor.addAction({
+        id: 'exit-fullscreen',
+        label: 'Exit Full Screen',
+        keybindings: [monaco.KeyCode.Escape],
+        run: () => {
+          if (isEditorFullScreen.value) {
+            toggleEditorFullScreen()
+          }
+        }
+      })
 
       groovyEditor.layout()
       groovyEditor.focus()
@@ -4267,6 +4384,59 @@ const loadRulesToCanvas = async (rules) => {
 
 .resizer-vertical:hover {
   background-color: #409eff;
+}
+
+/* Monaco 编辑器全屏样式 */
+.monaco-wrapper {
+  position: relative;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 内部工具栏，放置按钮 */
+.monaco-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 8px;
+  flex-shrink: 0;
+}
+
+/* 非全屏状态：工具栏不显示背景和边框 */
+.monaco-wrapper:not(.is-fullscreen) .monaco-toolbar {
+  background: transparent;
+  border: none;
+  padding: 4px 0;
+  margin-bottom: 4px;
+}
+
+/* 全屏状态：隐藏工具栏 */
+.monaco-wrapper.is-fullscreen .monaco-toolbar {
+  display: none;
+}
+
+/* 全屏状态样式 */
+.monaco-wrapper.is-fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 6000 !important; /* 必须高于 Drawer 和所有弹窗 */
+  background: #fff;
+}
+
+.monaco-wrapper.is-fullscreen #groovy-monaco-editor {
+  height: 100vh !important; /* 全屏时占满整个视口 */
+  border-radius: 0;
+  border: none;
+}
+
+/* 非全屏状态：确保编辑器恢复原始尺寸 */
+.monaco-wrapper:not(.is-fullscreen) #groovy-monaco-editor {
+  height: 400px !important;
+  border-radius: 4px;
+  border: 1px solid #dcdfe6;
 }
 </style>
 
