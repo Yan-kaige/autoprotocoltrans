@@ -229,6 +229,52 @@
       </template>
     </el-dialog>
 
+    <!-- 添加节点对话框 -->
+    <el-dialog v-model="addNodeDialogVisible" title="添加节点" width="600px">
+      <el-form :model="addNodeForm" label-width="120px">
+        <el-divider content-position="left">输入字段</el-divider>
+        <el-form-item label="输入字段名" required>
+          <el-input v-model="addNodeForm.fieldName" placeholder="请输入输入字段名称" />
+        </el-form-item>
+        <el-form-item label="输入路径（可选）">
+          <el-input v-model="addNodeForm.sourcePath" placeholder="留空则使用输入字段名作为路径" />
+          <div style="font-size: 12px; color: #909399; margin-top: 5px;">
+            例如：$.user.name 或 user.name
+          </div>
+        </el-form-item>
+        <el-divider content-position="left">输出字段</el-divider>
+        <el-form-item label="输出字段名" required>
+          <el-input v-model="addNodeForm.targetFieldName" placeholder="请输入输出字段名称" />
+        </el-form-item>
+        <el-form-item label="输出路径（可选）">
+          <el-input v-model="addNodeForm.targetPath" placeholder="留空则使用输出字段名作为路径" />
+          <div style="font-size: 12px; color: #909399; margin-top: 5px;">
+            例如：user.name 或 address.city
+          </div>
+        </el-form-item>
+        <el-divider content-position="left">映射规则</el-divider>
+        <el-form-item label="映射规则">
+          <el-select v-model="addNodeForm.mappingType" style="width: 100%;">
+            <el-option label="一对一 (ONE_TO_ONE)" value="ONE_TO_ONE" />
+            <el-option label="一对多 (ONE_TO_MANY)" value="ONE_TO_MANY" />
+            <el-option label="多对一 (MANY_TO_ONE)" value="MANY_TO_ONE" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="转换类型">
+          <el-select v-model="addNodeForm.transformType" style="width: 100%;">
+            <el-option label="直接映射 (DIRECT)" value="DIRECT" />
+            <el-option label="Groovy脚本 (GROOVY)" value="GROOVY" />
+            <el-option label="字典转换 (DICTIONARY)" value="DICTIONARY" />
+            <el-option label="函数转换 (FUNCTION)" value="FUNCTION" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="addNodeDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmAddNode">确定</el-button>
+      </template>
+    </el-dialog>
+
     <el-drawer
       v-model="edgeConfigVisible"
       title="配置转换规则"
@@ -726,9 +772,18 @@ let keyDownHandler = null
 const treeProps = { children: 'children', label: 'label' }
 const edgeConfigVisible = ref(false)
 const nodeEditVisible = ref(false)
+const addNodeDialogVisible = ref(false)
 let currentNodeToEdit = null
 const currentNodeEdit = ref({ fieldName: '', path: '' })
 const currentNodeEditType = ref('') // 'source' 或 'target'
+const addNodeForm = ref({
+  fieldName: '',
+  sourcePath: '',
+  targetFieldName: '',
+  targetPath: '',
+  mappingType: 'ONE_TO_ONE',
+  transformType: 'DIRECT'
+})
 const currentEdgeConfig = ref({ 
   sourcePath: '', 
   targetPath: '', 
@@ -2428,26 +2483,22 @@ const addFieldToSourceData = (fieldName) => {
 }
 
 /**
- * 手动添加节点对（点击按钮时调用）
+ * 打开添加节点对话框
  */
 const addNodePair = () => {
   if (!graph || !graphContainer.value) return
   
-  // 智能排版算法：每 10 个换一列
-  const ROW_HEIGHT = 60
-  const COLUMN_WIDTH = 450
-  const row = autoLayoutCount % 10
-  const col = Math.floor(autoLayoutCount / 10)
+  // 重置表单
+  addNodeForm.value = {
+    fieldName: '',
+    sourcePath: '',
+    targetFieldName: '',
+    targetPath: '',
+    mappingType: 'ONE_TO_ONE',
+    transformType: 'DIRECT'
+  }
   
-  // 基础起始点：x=250 (留出源节点空间), y=50
-  // 这里使用目标节点的X坐标作为中心点（源节点在左侧200px，目标节点在右侧50px）
-  const targetX = 250 + (col * COLUMN_WIDTH)
-  const targetY = 50 + (row * ROW_HEIGHT)
-  
-  let fieldName = null
-  let sourcePath = null
-  
-  // 检查是否有源数据，如果有则从源数据中提取未映射的字段
+  // 检查是否有源数据，如果有则从源数据中提取未映射的字段作为默认值
   if (sourceTreeData.value && sourceTreeData.value.length > 0) {
     // 收集所有字段
     const allFields = []
@@ -2470,40 +2521,129 @@ const addNodePair = () => {
       })
     }
     
-    // 找到第一个未映射的字段
+    // 找到第一个未映射的字段，作为默认值
     const unmappedField = allFields.find(field => !mappedPaths.has(field.path))
     
     if (unmappedField) {
       // 提取字段名（从路径中获取最后一部分）
       const pathParts = unmappedField.path.split('.')
-      fieldName = pathParts[pathParts.length - 1].replace(/\[.*?\]/g, '') // 移除数组索引
-      sourcePath = unmappedField.path
+      const fieldName = pathParts[pathParts.length - 1].replace(/\[.*?\]/g, '') // 移除数组索引
+      addNodeForm.value.fieldName = fieldName
+      addNodeForm.value.sourcePath = unmappedField.path
+      // 默认输出字段名与输入字段名相同
+      addNodeForm.value.targetFieldName = fieldName
     } else {
-      // 所有字段都已映射，提示用户
-      ElMessage.info('源数据中的所有字段都已映射，请手动添加新字段或修改现有映射')
-      return
+      // 所有字段都已映射，使用默认字段名
+      const defaultFieldName = `field_${nodeCounter + 1}`
+      addNodeForm.value.fieldName = defaultFieldName
+      addNodeForm.value.targetFieldName = defaultFieldName
     }
+  } else {
+    // 没有源数据，使用默认字段名
+    const defaultFieldName = `field_${nodeCounter + 1}`
+    addNodeForm.value.fieldName = defaultFieldName
+    addNodeForm.value.targetFieldName = defaultFieldName
   }
   
-  // 如果没有源数据或没有找到未映射字段，创建新字段
-  if (!fieldName) {
-    fieldName = `field_${nodeCounter + 1}`
-    sourcePath = null
+  // 打开对话框
+  addNodeDialogVisible.value = true
+}
+
+/**
+ * 确认添加节点
+ */
+const confirmAddNode = () => {
+  if (!addNodeForm.value.fieldName || !addNodeForm.value.fieldName.trim()) {
+    ElMessage.warning('请输入输入字段名')
+    return
   }
+  
+  if (!addNodeForm.value.targetFieldName || !addNodeForm.value.targetFieldName.trim()) {
+    ElMessage.warning('请输入输出字段名')
+    return
+  }
+  
+  if (!graph || !graphContainer.value) return
+  
+  // 智能排版算法：每 10 个换一列
+  const ROW_HEIGHT = 60
+  const COLUMN_WIDTH = 450
+  const row = autoLayoutCount % 10
+  const col = Math.floor(autoLayoutCount / 10)
+  
+  // 基础起始点：x=250 (留出源节点空间), y=50
+  const targetX = 250 + (col * COLUMN_WIDTH)
+  const targetY = 50 + (row * ROW_HEIGHT)
+  
+  const sourceFieldName = addNodeForm.value.fieldName.trim()
+  const sourcePath = addNodeForm.value.sourcePath.trim() || sourceFieldName
+  const targetFieldName = addNodeForm.value.targetFieldName.trim()
+  const targetPath = addNodeForm.value.targetPath.trim() || targetFieldName
   
   // 创建节点对
-  createNodePair(targetX, targetY, fieldName, sourcePath)
+  const sId = `s_${++nodeCounter}`
+  const tId = `t_${++nodeCounter}`
+  
+  // 1. 源节点（输入）
+  graph.addNode({
+    id: sId,
+    x: targetX - 200,
+    y: targetY - 25,
+    width: 140,
+    height: 40,
+    label: sourceFieldName,
+    data: { type: 'source', path: sourcePath },
+    ports: {
+      groups: { right: { position: 'right', attrs: { circle: { r: 4, magnet: true, stroke: '#2196f3', fill: '#fff' } } } },
+      items: [{ id: 'p1', group: 'right' }]
+    },
+    attrs: { body: { fill: '#e3f2fd', stroke: '#2196f3', rx: 4 }, text: { text: sourceFieldName, fontSize: 12 } }
+  })
+  
+  // 2. 目标节点（输出）
+  graph.addNode({
+    id: tId,
+    x: targetX + 50,
+    y: targetY - 25,
+    width: 140,
+    height: 40,
+    label: targetFieldName,
+    data: { type: 'target', path: targetPath },
+    ports: {
+      groups: { left: { position: 'left', attrs: { circle: { r: 4, magnet: true, stroke: '#9c27b0', fill: '#fff' } } } },
+      items: [{ id: 'p1', group: 'left' }]
+    },
+    attrs: { body: { fill: '#f3e5f5', stroke: '#9c27b0', rx: 4 }, text: { text: targetFieldName, fontSize: 12 } }
+  })
+  
+  // 3. 连线（使用配置的映射规则和转换类型）
+  graph.addEdge({
+    source: { cell: sId, port: 'p1' },
+    target: { cell: tId, port: 'p1' },
+    attrs: { line: { stroke: '#8f8f8f', strokeWidth: 2 } },
+    data: {
+      mappingType: addNodeForm.value.mappingType,
+      transformType: addNodeForm.value.transformType,
+      transformConfig: {}
+    },
+    labels: [{ attrs: { text: { text: addNodeForm.value.transformType, fontSize: 10 } } }]
+  })
   
   // 确保源数据中有这个字段（如果源数据为空或字段不存在，则添加）
-  addFieldToSourceData(fieldName)
+  addFieldToSourceData(sourceFieldName)
   
   // 计数器加1，确保下次不重叠
   autoLayoutCount++
+  nodeCount.value += 2
   
   // 更新映射状态
   updateMappedPaths()
+  updatePreview()
   
-  ElMessage.success('已添加新节点，可以双击节点进行编辑')
+  // 关闭对话框
+  addNodeDialogVisible.value = false
+  
+  ElMessage.success('已添加新节点')
 }
 
 // 一键自适应视野
