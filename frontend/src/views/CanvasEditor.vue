@@ -10,7 +10,7 @@
       <div class="editor-container">
         <div class="source-panel" :class="{ 'collapsed': sourcePanelCollapsed }" :style="{ width: sourcePanelCollapsed ? '50px' : sourcePanelWidth + 'px' }">
           <div class="panel-header">
-            <h3>源数据</h3>
+          <h3>源数据</h3>
             <el-button
               text
               :icon="sourcePanelCollapsed ? ArrowRight : ArrowLeft"
@@ -47,13 +47,13 @@
                 :class="{ 'input-error': sourceParseError }"
               ></div>
               <!-- XML 模式使用普通 textarea -->
-              <el-input
+          <el-input
                   v-else
-                  v-model="sourceJson"
-                  type="textarea"
-                  :rows="10"
+              v-model="sourceJson"
+              type="textarea"
+              :rows="10"
                   placeholder="请输入源XML数据"
-                  @input="parseSourceTree"
+              @input="parseSourceTree"
                   :class="{ 'input-error': sourceParseError }"
                   style="height: 100%;"
               />
@@ -81,35 +81,35 @@
                   <el-icon><Search /></el-icon>
                 </template>
               </el-input>
-              <el-tree
-                  ref="sourceTreeRef"
+          <el-tree
+              ref="sourceTreeRef"
                   :data="filteredSourceTreeData"
-                  :props="treeProps"
-                  node-key="path"
-                  :default-expand-all="true"
-                  class="data-tree"
+              :props="treeProps"
+              node-key="path"
+              :default-expand-all="true"
+              class="data-tree"
+          >
+            <template #default="{ node, data }">
+              <span
+                  class="tree-node"
+                  draggable="true"
+                  @dragstart="handleTreeDragStart($event, data, 'source')"
+                  @dragend="handleTreeDragEnd"
+                  @dblclick="handleTreeNodeDoubleClick(data)"
               >
-                <template #default="{ node, data }">
-                  <span
-                      class="tree-node"
-                      draggable="true"
-                      @dragstart="handleTreeDragStart($event, data, 'source')"
-                      @dragend="handleTreeDragEnd"
-                      @dblclick="handleTreeNodeDoubleClick(data)"
-                  >
-                    <el-icon><Document /></el-icon>
-                    {{ node.label }} ({{ data.type }})
+                <el-icon><Document /></el-icon>
+                {{ node.label }} ({{ data.type }})
                     <el-icon v-if="isFieldMapped(data.path)" class="mapped-icon" title="已映射">
                       <Check />
                     </el-icon>
-                  </span>
-                </template>
-              </el-tree>
+              </span>
+            </template>
+          </el-tree>
             </div>
           </div>
           </div>
         </div>
-        
+
         <!-- 左侧分隔条 -->
         <div 
           v-if="!sourcePanelCollapsed"
@@ -155,7 +155,7 @@
             拖拽或双击字段到画布（也可在画布上直接点击"添加节点"按钮）
           </div>
         </div>
-        
+
         <!-- 右侧分隔条 -->
         <div 
           v-if="!previewPanelCollapsed"
@@ -165,7 +165,7 @@
 
         <div class="preview-panel" :class="{ 'collapsed': previewPanelCollapsed }" :style="{ width: previewPanelCollapsed ? '50px' : previewPanelWidth + 'px' }">
           <div class="panel-header">
-            <h3>转换预览</h3>
+          <h3>转换预览</h3>
             <el-button
               text
               :icon="previewPanelCollapsed ? ArrowLeft : ArrowRight"
@@ -365,6 +365,40 @@
           <el-input v-model="currentEdgeConfig.transformConfig.fixedValue" placeholder="请输入固定值" />
         </el-form-item>
         
+        <!-- 多对一映射的额外源字段配置 -->
+        <el-form-item v-if="currentEdgeConfig.mappingType === 'MANY_TO_ONE'" label="额外源字段">
+          <div class="additional-sources-config">
+            <div v-for="(source, index) in additionalSources" :key="index" class="additional-source-item" style="display: flex; align-items: center; margin-bottom: 10px;">
+              <el-input 
+                v-model="source.path" 
+                placeholder="源路径（如 $.user.name）" 
+                style="flex: 1; margin-right: 10px;"
+                disabled
+              />
+              <el-button link type="danger" @click="removeAdditionalSource(index)">
+                <el-icon><Delete /></el-icon>
+              </el-button>
+            </div>
+            <el-button type="primary" @click="openAddSourceFieldDialog" style="margin-top: 10px">
+              <el-icon><Plus /></el-icon>
+              添加源字段
+            </el-button>
+            <div style="font-size: 12px; color: #999; margin-top: 10px;">
+              <div><strong>说明：</strong>多对一映射可以将多个源字段合并到一个目标字段</div>
+              <div><strong>Groovy脚本变量：</strong></div>
+              <div>• <code>input</code>: 主源字段的值</div>
+              <div>• <code>inputs</code>: 所有源字段的值数组（包括主源和额外源）</div>
+              <div>• <code>inputs[0]</code>: 主源字段的值</div>
+              <div>• <code>inputs[1]</code>: 第一个额外源字段的值</div>
+              <div>• <code>inputs[2]</code>: 第二个额外源字段的值，以此类推</div>
+              <div style="margin-top: 5px;"><strong>示例：</strong></div>
+              <div style="background: #f5f5f5; padding: 8px; border-radius: 4px; margin: 5px 0;">
+                <code>return (inputs[0] ?: '') + ' ' + (inputs[1] ?: '')</code>
+              </div>
+            </div>
+          </div>
+        </el-form-item>
+        
         <!-- 一对多映射的子映射配置 -->
         <el-form-item v-if="currentEdgeConfig.mappingType === 'ONE_TO_MANY'" label="子映射配置">
           <div class="sub-mapping-config">
@@ -404,11 +438,50 @@
       </el-form>
       <template #footer>
         <div style="flex: auto; padding: 20px;">
-          <el-button @click="edgeConfigVisible = false">取消</el-button>
+        <el-button @click="edgeConfigVisible = false">取消</el-button>
           <el-button type="primary" @click="saveEdgeConfig">确定保存配置</el-button>
         </div>
       </template>
     </el-drawer>
+
+    <!-- 添加源字段对话框 -->
+    <el-dialog v-model="addSourceFieldDialogVisible" title="选择源字段" width="600px">
+      <div style="margin-bottom: 15px;">
+        <el-input
+          v-model="sourceFieldSearchKeyword"
+          placeholder="搜索字段..."
+          clearable
+          style="margin-bottom: 10px;"
+        >
+          <template #prefix>
+            <el-icon><Search /></el-icon>
+          </template>
+        </el-input>
+        <el-tree
+          ref="sourceFieldTreeRef"
+          :data="filteredSourceTreeDataForDialog"
+          :props="treeProps"
+          node-key="path"
+          :default-expand-all="false"
+          show-checkbox
+          :check-strictly="false"
+          :default-checked-keys="selectedSourceFieldPaths"
+          @check="handleSourceFieldCheck"
+          style="max-height: 400px; overflow-y: auto;"
+        >
+          <template #default="{ node, data }">
+            <span class="tree-node">
+              <el-icon><Document /></el-icon>
+              {{ node.label }} ({{ data.type }})
+            </span>
+          </template>
+        </el-tree>
+      </div>
+      <template #footer>
+        <el-button @click="addSourceFieldDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmAddSourceFields">确定</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 保存/修改配置对话框 -->
     <el-dialog v-model="saveConfigVisible" :title="currentConfigId ? '修改配置' : '保存配置'" width="500px">
@@ -796,6 +869,11 @@ const currentEdgeConfig = ref({
 const dictionaryList = ref([])
 const availableFunctions = ref({}) // 可用函数列表（包括系统函数和自定义函数）
 const subMappings = ref([]) // 一对多映射的子映射列表
+const additionalSources = ref([]) // 多对一映射的额外源字段列表
+const addSourceFieldDialogVisible = ref(false) // 添加源字段对话框显示状态
+const sourceFieldSearchKeyword = ref('') // 源字段搜索关键词
+const selectedSourceFieldPaths = ref([]) // 已选中的源字段路径
+const sourceFieldTreeRef = ref(null) // 源字段树引用
 
 // 保存配置相关
 const saveConfigVisible = ref(false)
@@ -1048,6 +1126,15 @@ const initGroovyEditor = async () => {
 const handleDrawerOpened = () => {
   if (currentEdgeConfig.value.transformType === 'GROOVY') {
     initGroovyEditor()
+    
+    // 如果是多对一映射且有额外源字段，生成代码模板
+    if (currentEdgeConfig.value.mappingType === 'MANY_TO_ONE' && additionalSources.value.length > 0) {
+      nextTick(() => {
+        setTimeout(() => {
+          generateGroovyTemplateForManyToOne()
+        }, 500)
+      })
+    }
   }
 }
 
@@ -1199,7 +1286,7 @@ const initGraph = () => {
 
   // 获取容器尺寸
   const rect = graphContainer.value.getBoundingClientRect()
-  
+
   graph = new Graph({
     container: graphContainer.value,
     width: rect.width || 800,
@@ -1492,10 +1579,10 @@ const initGraph = () => {
 
     // 原有的 Delete 逻辑（只在画布上生效）
     if (e.key === 'Delete' || e.key === 'Backspace') {
-      const selected = graph.getSelectedCells()
-      if (selected.length > 0) {
-        e.preventDefault()
-        graph.removeCells(selected)
+    const selected = graph.getSelectedCells()
+    if (selected.length > 0) {
+      e.preventDefault()
+      graph.removeCells(selected)
       }
     }
   }
@@ -1538,7 +1625,7 @@ const parseSourceTree = () => {
     }
   } catch (e) { 
     console.error('解析失败:', e)
-    sourceTreeData.value = []
+    sourceTreeData.value = [] 
     
     // 设置错误信息
     let errorMessage = '解析失败: '
@@ -1890,6 +1977,30 @@ const filteredSourceTreeData = computed(() => {
     }
     
     const filteredChildren = filterTreeNodes(rootNode.children, searchKeyword.value)
+    return {
+      ...rootNode,
+      children: filteredChildren
+    }
+  })
+})
+
+// 添加源字段对话框中的树数据（支持搜索）
+const filteredSourceTreeDataForDialog = computed(() => {
+  if (!sourceFieldSearchKeyword.value || !sourceFieldSearchKeyword.value.trim()) {
+    return sourceTreeData.value
+  }
+  
+  if (!sourceTreeData.value || sourceTreeData.value.length === 0) {
+    return []
+  }
+  
+  // 对每个根节点进行过滤
+  return sourceTreeData.value.map(rootNode => {
+    if (!rootNode.children || rootNode.children.length === 0) {
+      return rootNode
+    }
+    
+    const filteredChildren = filterTreeNodes(rootNode.children, sourceFieldSearchKeyword.value)
     return {
       ...rootNode,
       children: filteredChildren
@@ -2851,14 +2962,99 @@ const openEdgeConfig = (edge) => {
     }
   }
   
-  currentEdgeConfig.value = {
-    sourcePath: s.getData().path,
-    targetPath: t.getData().path,
-    mappingType: data.mappingType || 'ONE_TO_ONE',
-    transformType: data.transformType || 'DIRECT',
-    transformConfig: data.transformConfig || {},
-    dictionaryId: dictionaryId,
-    dictionaryDirection: dictionaryDirection
+  // 检查是否是多对一映射：查找所有连接到同一目标节点的边
+  const targetNodeId = t.id
+  const allEdgesToTarget = graph.getEdges().filter(e => e.getTargetCellId() === targetNodeId)
+  
+  // 如果有多条边连接到同一目标节点，认为是多对一映射
+  const isManyToOne = allEdgesToTarget.length > 1
+  
+  // 如果是多对一映射，收集所有源路径
+  let allSourcePaths = []
+  let sharedConfig = null
+  if (isManyToOne) {
+    // 收集所有连接到目标节点的源路径
+    allSourcePaths = allEdgesToTarget.map(e => {
+      const sourceNode = graph.getCellById(e.getSourceCellId())
+      if (sourceNode) {
+        const sourcePath = sourceNode.getData()?.path || ''
+        return sourcePath.startsWith('$.') ? sourcePath : `$.${sourcePath}`
+      }
+      return null
+    }).filter(path => path !== null)
+    
+    // 查找是否有边已经配置了 MANY_TO_ONE 类型，使用它的配置
+    const configuredEdge = allEdgesToTarget.find(e => {
+      const edgeData = e.getData() || {}
+      return edgeData.mappingType === 'MANY_TO_ONE'
+    })
+    
+    if (configuredEdge) {
+      const configuredData = configuredEdge.getData() || {}
+      sharedConfig = {
+        mappingType: 'MANY_TO_ONE',
+        transformType: configuredData.transformType || 'DIRECT',
+        transformConfig: configuredData.transformConfig || {},
+        dictionaryId: configuredData.dictionaryId || null,
+        dictionaryDirection: configuredData.dictionaryDirection !== undefined ? configuredData.dictionaryDirection : false,
+        additionalSources: configuredData.additionalSources || []
+      }
+    } else {
+      // 如果没有配置，使用当前边的配置或默认值
+      // 优先使用当前边的配置，如果当前边也没有配置，使用默认值
+      sharedConfig = {
+        mappingType: 'MANY_TO_ONE',
+        transformType: data.transformType || 'DIRECT',
+        transformConfig: data.transformConfig || {},
+        dictionaryId: dictionaryId,
+        dictionaryDirection: dictionaryDirection,
+        additionalSources: data.additionalSources || []
+      }
+    }
+    
+    // 多对一映射：使用共享配置，主源路径是当前边的源路径
+    const currentSourcePath = s.getData().path
+    const normalizedCurrentPath = currentSourcePath.startsWith('$.') ? currentSourcePath : `$.${currentSourcePath}`
+    
+    currentEdgeConfig.value = {
+      sourcePath: currentSourcePath,
+      targetPath: t.getData().path,
+      mappingType: sharedConfig.mappingType,
+      transformType: sharedConfig.transformType,
+      transformConfig: sharedConfig.transformConfig,
+      dictionaryId: sharedConfig.dictionaryId,
+      dictionaryDirection: sharedConfig.dictionaryDirection
+    }
+    
+    // 初始化额外源字段：包括所有其他源路径（排除当前主源路径）
+    const otherSourcePaths = allSourcePaths.filter(path => path !== normalizedCurrentPath)
+    additionalSources.value = otherSourcePaths.map(path => ({ path }))
+    
+    // 如果已有配置的额外源字段，合并进去（去重）
+    if (sharedConfig.additionalSources && sharedConfig.additionalSources.length > 0) {
+      sharedConfig.additionalSources.forEach(additionalPath => {
+        const normalizedPath = additionalPath.startsWith('$.') ? additionalPath : `$.${additionalPath}`
+        if (normalizedPath !== normalizedCurrentPath && !otherSourcePaths.includes(normalizedPath)) {
+          // 检查是否已存在
+          const exists = additionalSources.value.some(item => item.path === normalizedPath)
+          if (!exists) {
+            additionalSources.value.push({ path: normalizedPath })
+          }
+        }
+      })
+    }
+  } else {
+    // 非多对一映射：使用当前边的配置
+    currentEdgeConfig.value = {
+      sourcePath: s.getData().path,
+      targetPath: t.getData().path,
+      mappingType: data.mappingType || 'ONE_TO_ONE',
+      transformType: data.transformType || 'DIRECT',
+      transformConfig: data.transformConfig || {},
+      dictionaryId: dictionaryId,
+      dictionaryDirection: dictionaryDirection
+    }
+    additionalSources.value = []
   }
   
   // 初始化一对多映射的子映射配置
@@ -2896,6 +3092,14 @@ const onTransformTypeChange = () => {
     currentEdgeConfig.value.dictionaryDirection = false
   }
   
+  // 如果是多对一映射且切换到 GROOVY 类型，生成代码模板
+  if (currentEdgeConfig.value.mappingType === 'MANY_TO_ONE' && 
+      currentEdgeConfig.value.transformType === 'GROOVY' && 
+      additionalSources.value.length > 0) {
+    nextTick(() => {
+      generateGroovyTemplateForManyToOne()
+    })
+  }
 }
 
 const onDictionaryChange = () => {
@@ -2910,9 +3114,20 @@ const onMappingTypeChange = () => {
     if (subMappings.value.length === 0) {
       subMappings.value = [{ sourcePath: '', targetPath: '' }]
     }
-  } else {
-    // 其他映射类型：清空子映射
+    additionalSources.value = []
+  } else if (currentEdgeConfig.value.mappingType === 'MANY_TO_ONE') {
+    // 多对一映射：清空子映射
     subMappings.value = []
+    // 如果是 GROOVY 类型且有额外源字段，生成代码模板
+    if (currentEdgeConfig.value.transformType === 'GROOVY' && additionalSources.value.length > 0) {
+      nextTick(() => {
+        generateGroovyTemplateForManyToOne()
+      })
+    }
+  } else {
+    // 其他映射类型：清空子映射和额外源字段
+    subMappings.value = []
+    additionalSources.value = []
   }
 }
 
@@ -2923,6 +3138,92 @@ const addSubMapping = () => {
 
 const removeSubMapping = (index) => {
   subMappings.value.splice(index, 1)
+}
+
+// 打开添加源字段对话框
+const openAddSourceFieldDialog = () => {
+  if (!sourceTreeData.value || sourceTreeData.value.length === 0) {
+    ElMessage.warning('请先输入源数据')
+    return
+  }
+  
+  sourceFieldSearchKeyword.value = ''
+  selectedSourceFieldPaths.value = additionalSources.value.map(item => item.path)
+  addSourceFieldDialogVisible.value = true
+}
+
+// 处理源字段树选择
+const handleSourceFieldCheck = (data, checked) => {
+  // 这里可以添加额外的逻辑
+}
+
+// 确认添加源字段
+const confirmAddSourceFields = () => {
+  if (!sourceFieldTreeRef.value) return
+  
+  const checkedKeys = sourceFieldTreeRef.value.getCheckedKeys()
+  const halfCheckedKeys = sourceFieldTreeRef.value.getHalfCheckedKeys()
+  const allCheckedKeys = [...checkedKeys, ...halfCheckedKeys]
+  
+  // 过滤掉主源路径（避免重复）
+  const mainSourcePath = currentEdgeConfig.value.sourcePath
+  const normalizedMainPath = mainSourcePath.startsWith('$.') ? mainSourcePath : `$.${mainSourcePath}`
+  
+  const filteredKeys = allCheckedKeys.filter(path => {
+    const normalizedPath = path.startsWith('$.') ? path : `$.${path}`
+    return normalizedPath !== normalizedMainPath
+  })
+  
+  // 更新额外源字段列表
+  additionalSources.value = filteredKeys.map(path => ({
+    path: path.startsWith('$.') ? path : `$.${path}`
+  }))
+  
+  // 如果是 GROOVY 类型，自动生成代码模板
+  if (currentEdgeConfig.value.transformType === 'GROOVY' && filteredKeys.length > 0) {
+    nextTick(() => {
+      setTimeout(() => {
+        generateGroovyTemplateForManyToOne()
+      }, 500)
+    })
+  }
+  
+  addSourceFieldDialogVisible.value = false
+}
+
+// 移除额外源字段
+const removeAdditionalSource = (index) => {
+  additionalSources.value.splice(index, 1)
+  // 如果是 GROOVY 类型，重新生成代码模板
+  if (currentEdgeConfig.value.transformType === 'GROOVY') {
+    nextTick(() => {
+      setTimeout(() => {
+        generateGroovyTemplateForManyToOne()
+      }, 100)
+    })
+  }
+}
+
+// 为多对一映射生成 Groovy 代码模板
+const generateGroovyTemplateForManyToOne = () => {
+  if (!groovyEditor || additionalSources.value.length === 0) return
+  
+  // 生成代码模板：inputs[0] + inputs[1] + ...
+  const parts = []
+  for (let i = 0; i <= additionalSources.value.length; i++) {
+    parts.push(`(inputs[${i}]?.toString() ?: '')`)
+  }
+  const template = `return ${parts.join(' + ')}`
+  
+  // 更新编辑器内容
+  groovyEditor.setValue(template)
+  
+  // 格式化代码
+  setTimeout(() => {
+    if (groovyEditor) {
+      groovyEditor.getAction('editor.action.formatDocument').run().catch(() => {})
+    }
+  }, 100)
 }
 
 // 加载字典列表
@@ -3000,27 +3301,35 @@ const saveEdgeConfig = () => {
     }
   }
   
-  // 一对多映射：保存子映射配置（可以与其他转换类型组合使用，如GROOVY+ONE_TO_MANY）
-  if (currentEdgeConfig.value.mappingType === 'ONE_TO_MANY') {
-    // 一对多映射：保存子映射配置
-    // 子映射的源路径是相对于源对象的路径，不需要$前缀
-    const subMaps = subMappings.value
-      .filter(item => item.sourcePath && item.targetPath)
-      .map(item => ({
-        sourcePath: item.sourcePath.replace(/^\$\./, ''), // 移除$前缀，使用相对路径
-        targetPath: item.targetPath
-      }))
-    if (subMaps.length > 0) {
-      config.subMappings = subMaps
-    }
-  }
-  
   // 更新边的数据
   const edgeData = {
     ...currentEdge.getData(),
     mappingType: currentEdgeConfig.value.mappingType,
     transformType: currentEdgeConfig.value.transformType,
     transformConfig: config
+  }
+  
+  // 多对一映射：保存额外源字段配置
+  if (currentEdgeConfig.value.mappingType === 'MANY_TO_ONE') {
+    const additional = additionalSources.value
+      .filter(item => item.path && item.path.trim())
+      .map(item => {
+        // 确保路径以 $ 开头
+        let path = item.path.trim()
+        if (!path.startsWith('$')) {
+          path = `$.${path}`
+        }
+        return path
+      })
+    if (additional.length > 0) {
+      edgeData.additionalSources = additional
+    } else {
+      // 如果没有额外源字段，删除该属性
+      delete edgeData.additionalSources
+    }
+  } else {
+    // 非多对一映射，删除额外源字段
+    delete edgeData.additionalSources
   }
   
   // 如果是字典类型，添加字典ID和方向
@@ -3031,18 +3340,123 @@ const saveEdgeConfig = () => {
       : false
   }
   
-  currentEdge.setData(edgeData)
-  
-  // 更新边的标签显示
-  currentEdge.setLabels([{
-    attrs: {
-      text: {
-        text: currentEdgeConfig.value.transformType,
-        fill: '#666',
-        fontSize: 10,
+  // 如果是多对一映射，需要更新所有连接到同一目标节点的边
+  if (currentEdgeConfig.value.mappingType === 'MANY_TO_ONE') {
+    const targetNodeId = currentEdge.getTargetCellId()
+    const allEdgesToTarget = graph.getEdges().filter(e => e.getTargetCellId() === targetNodeId)
+    
+    // 更新所有连接到同一目标节点的边，使它们共享相同的配置
+    allEdgesToTarget.forEach(edge => {
+      const sharedEdgeData = {
+        ...edge.getData(),
+        mappingType: edgeData.mappingType,
+        transformType: edgeData.transformType,
+        transformConfig: edgeData.transformConfig,
+        additionalSources: edgeData.additionalSources,
+        dictionaryId: edgeData.dictionaryId,
+        dictionaryDirection: edgeData.dictionaryDirection
       }
+      edge.setData(sharedEdgeData)
+      
+      // 更新边的标签显示
+      edge.setLabels([{
+        attrs: {
+          text: {
+            text: edgeData.transformType,
+            fill: '#666',
+            fontSize: 10,
+          }
+        }
+      }])
+    })
+  } else {
+    // 非多对一映射，只更新当前边
+    currentEdge.setData(edgeData)
+    
+    // 更新边的标签显示
+    currentEdge.setLabels([{
+      attrs: {
+        text: {
+          text: currentEdgeConfig.value.transformType,
+          fill: '#666',
+          fontSize: 10,
+        }
+      }
+    }])
+  }
+  
+  // 如果是多对一映射且有额外源字段，需要在画布上创建额外的节点和边
+  if (currentEdgeConfig.value.mappingType === 'MANY_TO_ONE' && edgeData.additionalSources && edgeData.additionalSources.length > 0) {
+    const targetNode = graph.getCellById(currentEdge.getTargetCellId())
+    if (targetNode) {
+      edgeData.additionalSources.forEach((additionalPath, index) => {
+        // 检查是否已存在对应的源节点
+        const sourcePathKey = additionalPath.replace(/^\$\./, '')
+        const existingNodes = graph.getNodes()
+        let sourceNode = existingNodes.find(node => {
+          const nodeData = node.getData()
+          return nodeData?.type === 'source' && nodeData?.path === sourcePathKey
+        })
+        
+        // 如果不存在，创建源节点
+        if (!sourceNode) {
+          const fieldName = sourcePathKey.split('.').pop() || sourcePathKey
+          const nodeId = `s_${++nodeCounter}`
+          
+          // 计算节点位置（在目标节点左侧，垂直排列）
+          const targetPosition = targetNode.position()
+          const x = targetPosition.x - 250
+          const y = targetPosition.y + (index * 60)
+          
+          sourceNode = graph.addNode({
+            id: nodeId,
+            x: x,
+            y: y,
+            width: 140,
+            height: 40,
+            label: fieldName,
+            data: { type: 'source', path: sourcePathKey },
+            ports: {
+              groups: { right: { position: 'right', attrs: { circle: { r: 4, magnet: true, stroke: '#2196f3', fill: '#fff' } } } },
+              items: [{ id: 'p1', group: 'right' }]
+            },
+            attrs: { body: { fill: '#e3f2fd', stroke: '#2196f3', rx: 4 }, text: { text: fieldName, fontSize: 12 } }
+          })
+          
+          // 确保源数据中有这个字段
+          addFieldToSourceData(fieldName)
+          
+          nodeCount.value++
+        }
+        
+        // 检查是否已存在对应的边
+        const existingEdges = graph.getEdges()
+        const sourceNodeId = sourceNode.id
+        const targetNodeId = targetNode.id
+        const edgeExists = existingEdges.some(edge => {
+          return edge.getSourceCellId() === sourceNodeId && edge.getTargetCellId() === targetNodeId
+        })
+        
+        // 如果不存在，创建边
+        if (!edgeExists) {
+          graph.addEdge({
+            source: { cell: sourceNodeId, port: 'p1' },
+            target: { cell: targetNodeId, port: 'p1' },
+            attrs: { line: { stroke: '#8f8f8f', strokeWidth: 2 } },
+            data: {
+              mappingType: 'MANY_TO_ONE',
+              transformType: currentEdgeConfig.value.transformType || 'GROOVY',
+              transformConfig: currentEdgeConfig.value.transformConfig || {}
+            },
+            labels: [{ attrs: { text: { text: currentEdgeConfig.value.transformType || 'GROOVY', fontSize: 10 } } }]
+          })
+        }
+      })
     }
-  }])
+  }
+  
+  // 更新映射状态
+  updateMappedPaths()
   
   edgeConfigVisible.value = false
   currentEdge = null
