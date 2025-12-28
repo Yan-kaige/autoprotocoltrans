@@ -31,7 +31,11 @@
               :rows="10"
               :placeholder="sourceProtocol === 'XML' ? '请输入源XML数据' : '请输入源JSON数据'"
               @input="parseSourceTree"
+              :class="{ 'input-error': sourceParseError }"
           />
+          <div v-if="sourceParseError" style="color: #f56c6c; font-size: 12px; margin-top: 5px; margin-bottom: 10px;">
+            {{ sourceParseError }}
+          </div>
           <el-divider />
 <!--          <div class="tree-tip">拖拽或双击字段到画布（也可在画布上直接点击"添加节点"按钮）</div>-->
           <el-input
@@ -392,6 +396,7 @@ import loader from '@monaco-editor/loader'
 // --- 状态变量 ---
 const sourceJson = ref('')
 const sourceTreeData = ref([])
+const sourceParseError = ref('') // 源数据解析错误信息
 const searchKeyword = ref('') // 搜索关键词
 const sourceProtocol = ref('JSON') // 源协议类型：JSON 或 XML
 const targetProtocol = ref('JSON') // 目标协议类型：JSON 或 XML
@@ -1188,8 +1193,14 @@ const initGraph = () => {
 
 // --- 树逻辑 ---
 const parseSourceTree = () => {
+  // 清空之前的错误信息
+  sourceParseError.value = ''
+  
   try {
-    if (!sourceJson.value.trim()) { sourceTreeData.value = []; return }
+    if (!sourceJson.value.trim()) { 
+      sourceTreeData.value = []
+      return 
+    }
     
     let data
     if (sourceProtocol.value === 'XML') {
@@ -1209,7 +1220,20 @@ const parseSourceTree = () => {
     }
   } catch (e) { 
     console.error('解析失败:', e)
-    sourceTreeData.value = [] 
+    sourceTreeData.value = []
+    
+    // 设置错误信息
+    let errorMessage = '解析失败: '
+    if (sourceProtocol.value === 'XML') {
+      errorMessage += e.message || 'XML格式错误，请检查XML语法'
+    } else {
+      if (e instanceof SyntaxError) {
+        errorMessage += 'JSON格式错误，请检查JSON语法'
+      } else {
+        errorMessage += e.message || '未知错误'
+      }
+    }
+    sourceParseError.value = errorMessage
   }
 }
 
@@ -1328,7 +1352,8 @@ const parseXmlToObject = (xmlString) => {
 
 // 源协议类型变化时的处理
 const onSourceProtocolChange = () => {
-  // 切换协议类型时，清空树数据并重新解析
+  // 切换协议类型时，清空错误信息并重新解析
+  sourceParseError.value = ''
   parseSourceTree()
 }
 
@@ -2865,5 +2890,14 @@ const loadRulesToCanvas = async (rules) => {
 
 .resizer-right {
   border-left: 1px solid #ddd;
+}
+
+/* 输入框错误状态 */
+.input-error :deep(.el-textarea__inner) {
+  border-color: #f56c6c;
+}
+
+.input-error :deep(.el-textarea__inner):focus {
+  border-color: #f56c6c;
 }
 </style>
