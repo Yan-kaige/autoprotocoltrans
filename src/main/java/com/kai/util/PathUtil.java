@@ -20,16 +20,45 @@ public class PathUtil {
      */
     @SuppressWarnings("unchecked")
     public static void setDeepValue(Map<String, Object> targetMap, String path, Object value) {
-        if (path == null || path.isEmpty()) {
+        if (path == null || path.isEmpty() || path.trim().isEmpty()) {
+            // 如果路径为空，直接将值合并到目标Map（而不是创建空键）
+            if (value instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> valueMap = (Map<String, Object>) value;
+                targetMap.putAll(valueMap);
+            } else {
+                // 如果值不是Map，无法合并，直接返回
+                return;
+            }
             return;
         }
         
-        String[] parts = path.split("\\.");
+        String trimmedPath = path.trim();
+        String[] parts = trimmedPath.split("\\.");
+        
+        // 过滤掉空的部分（防止路径中有连续的点号或前后空格）
+        parts = java.util.Arrays.stream(parts)
+            .filter(part -> part != null && !part.isEmpty())
+            .toArray(String[]::new);
+        
+        if (parts.length == 0) {
+            // 如果过滤后没有有效部分，按空路径处理
+            if (value instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> valueMap = (Map<String, Object>) value;
+                targetMap.putAll(valueMap);
+            }
+            return;
+        }
+        
         Map<String, Object> current = targetMap;
         
         // 创建嵌套路径，除了最后一个
         for (int i = 0; i < parts.length - 1; i++) {
             String part = parts[i];
+            if (part == null || part.isEmpty()) {
+                continue; // 跳过空的部分
+            }
             Object next = current.get(part);
             
             if (next == null || !(next instanceof Map)) {
@@ -41,7 +70,10 @@ public class PathUtil {
         }
         
         // 设置最后的值
-        current.put(parts[parts.length - 1], value);
+        String lastPart = parts[parts.length - 1];
+        if (lastPart != null && !lastPart.isEmpty()) {
+            current.put(lastPart, value);
+        }
     }
     
     /**

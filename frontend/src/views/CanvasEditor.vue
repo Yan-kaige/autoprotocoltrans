@@ -32,10 +32,10 @@
               type="success"
             >
               <el-icon><Plus /></el-icon>
-              生成随机数据
+              MOCK
             </el-button>
-            <el-button 
-              size="small" 
+            <el-button
+              size="small"
               @click="formatSourceData"
               :disabled="!sourceJson.trim()"
               title="格式化"
@@ -184,6 +184,47 @@
             />
           </div>
           <div v-show="!previewPanelCollapsed" class="panel-content">
+          <!-- 智能匹配模式 -->
+          <el-card style="margin-bottom: 10px;" shadow="never">
+            <template #header>
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-size: 14px; font-weight: 500;">智能匹配</span>
+                <el-switch
+                  v-model="smartMatchMode"
+                  active-text="开启"
+                  inactive-text="关闭"
+                  size="small"
+                />
+              </div>
+            </template>
+            <div v-if="smartMatchMode">
+              <div style="margin-bottom: 10px; font-size: 12px; color: #666;">
+                输入目标数据结构，系统将根据字段名相似度自动匹配映射
+              </div>
+              <el-input
+                v-model="targetJson"
+                type="textarea"
+                :rows="4"
+                placeholder="请输入目标数据结构（JSON或XML）用于智能匹配"
+                style="margin-bottom: 10px;"
+                @input="parseTargetTree"
+              />
+              <el-button
+                type="success"
+                size="small"
+                @click="smartMatchAll"
+                :disabled="!sourceTreeData || sourceTreeData.length === 0 || !targetTreeData || targetTreeData.length === 0"
+                style="width: 100%;"
+              >
+                <el-icon><Plus /></el-icon>
+                一键全映射
+              </el-button>
+              <div v-if="targetParseError" style="color: #f56c6c; font-size: 12px; margin-top: 5px;">
+                {{ targetParseError }}
+              </div>
+            </div>
+          </el-card>
+          
           <div style="margin-bottom: 10px;">
             <el-select v-model="targetProtocol" style="width: 100%; margin-bottom: 10px;">
               <el-option label="JSON" value="JSON" />
@@ -584,6 +625,10 @@ const sourcePanelWidth = ref(300) // 源数据面板宽度
 const previewPanelWidth = ref(350) // 预览面板宽度
 const sourceInputHeight = ref(200) // 源数据输入框高度
 const autoMappingMode = ref(false) // 自动映射模式
+const smartMatchMode = ref(false) // 智能匹配模式
+const targetJson = ref('') // 目标数据结构
+const targetTreeData = ref([]) // 目标数据树结构
+const targetParseError = ref('') // 目标数据解析错误信息
 const nodeCount = ref(0) // 节点数量，用于判断画布是否为空
 const isCanvasEmpty = computed(() => nodeCount.value === 0)
 
@@ -1999,6 +2044,47 @@ const parseSourceTree = () => {
   }
 }
 
+// 解析目标数据树
+const parseTargetTree = () => {
+  // 清空之前的错误信息
+  targetParseError.value = ''
+  
+  try {
+    if (!targetJson.value.trim()) { 
+      targetTreeData.value = []
+      return 
+    }
+    
+    let data
+    if (targetProtocol.value === 'XML') {
+      // XML格式：解析XML为对象
+      data = parseXmlToObject(targetJson.value)
+    } else {
+      // JSON格式：解析JSON
+      data = JSON.parse(targetJson.value)
+    }
+    
+    // 转换为树结构显示
+    targetTreeData.value = [convertToTreeData(data, 'target', '')]
+  } catch (e) { 
+    console.error('解析目标数据失败:', e)
+    targetTreeData.value = [] 
+    
+    // 设置错误信息
+    let errorMessage = '解析失败: '
+    if (targetProtocol.value === 'XML') {
+      errorMessage += e.message || 'XML格式错误，请检查XML语法'
+    } else {
+      if (e instanceof SyntaxError) {
+        errorMessage += 'JSON格式错误，请检查JSON语法'
+      } else {
+        errorMessage += e.message || '未知错误'
+      }
+    }
+    targetParseError.value = errorMessage
+  }
+}
+
 // XML转对象（尽量与Jackson XmlMapper的结构保持一致）
 const parseXmlToObject = (xmlString) => {
   try {
@@ -2118,6 +2204,14 @@ const onSourceProtocolChange = () => {
   sourceParseError.value = ''
   parseSourceTree()
 }
+
+// 监听目标协议类型变化，重新解析目标数据
+watch(targetProtocol, () => {
+  if (targetJson.value && targetJson.value.trim()) {
+    targetParseError.value = ''
+    parseTargetTree()
+  }
+})
 
 // 生成随机数据
 const generateRandomData = () => {
@@ -2974,6 +3068,286 @@ const onAutoMappingModeChange = (value) => {
     // 如果开启自动映射且已有解析的JSON数据，立即生成映射
     generateAutoMapping()
   }
+}
+
+/**
+ * 计算两个字符串的相似度（使用 Levenshtein 距离和包含匹配）
+ * @param {string} str1 - 字符串1
+ * @param {string} str2 - 字符串2
+ * @returns {number} 相似度分数（0-1）
+ */
+const calculateSimilarity = (str1, str2) => {
+  if (!str1 || !str2) return 0
+  
+  const s1 = str1.toLowerCase().trim()
+  const s2 = str2.toLowerCase().trim()
+  
+  // 完全匹配
+  if (s1 === s2) return 1.0
+  
+  // 包含匹配（一个包含另一个）
+  if (s1.includes(s2) || s2.includes(s1)) {
+    const minLen = Math.min(s1.length, s2.length)
+    const maxLen = Math.max(s1.length, s2.length)
+    return minLen / maxLen * 0.8 // 包含匹配给予0.8的权重
+  }
+  
+  // Levenshtein 距离相似度
+  const distance = levenshteinDistance(s1, s2)
+  const maxLen = Math.max(s1.length, s2.length)
+  const similarity = 1 - (distance / maxLen)
+  
+  // 如果相似度太低，检查是否有共同的关键词
+  if (similarity < 0.3) {
+    const words1 = s1.split(/[_\-\s]+/)
+    const words2 = s2.split(/[_\-\s]+/)
+    const commonWords = words1.filter(w => w.length > 2 && words2.includes(w))
+    if (commonWords.length > 0) {
+      return Math.max(similarity, 0.4) // 有共同关键词至少给0.4分
+    }
+  }
+  
+  return Math.max(0, similarity)
+}
+
+/**
+ * 计算 Levenshtein 距离
+ */
+const levenshteinDistance = (str1, str2) => {
+  const len1 = str1.length
+  const len2 = str2.length
+  const matrix = []
+  
+  for (let i = 0; i <= len1; i++) {
+    matrix[i] = [i]
+  }
+  
+  for (let j = 0; j <= len2; j++) {
+    matrix[0][j] = j
+  }
+  
+  for (let i = 1; i <= len1; i++) {
+    for (let j = 1; j <= len2; j++) {
+      if (str1[i - 1] === str2[j - 1]) {
+        matrix[i][j] = matrix[i - 1][j - 1]
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j] + 1,     // 删除
+          matrix[i][j - 1] + 1,     // 插入
+          matrix[i - 1][j - 1] + 1  // 替换
+        )
+      }
+    }
+  }
+  
+  return matrix[len1][len2]
+}
+
+/**
+ * 智能匹配：一键全映射
+ * 根据源数据和目标数据的字段名相似度自动生成映射
+ */
+const smartMatchAll = () => {
+  if (!graph || !sourceTreeData.value || sourceTreeData.value.length === 0) {
+    ElMessage.warning('请先输入并解析源数据')
+    return
+  }
+  
+  if (!targetTreeData.value || targetTreeData.value.length === 0) {
+    ElMessage.warning('请先输入并解析目标数据')
+    return
+  }
+  
+  // 收集所有源字段
+  const sourceFields = []
+  sourceTreeData.value.forEach(rootNode => {
+    if (rootNode.children) {
+      rootNode.children.forEach(child => {
+        collectAllFields(child, sourceFields)
+      })
+    }
+  })
+  
+  // 收集所有目标字段
+  const targetFields = []
+  targetTreeData.value.forEach(rootNode => {
+    if (rootNode.children) {
+      rootNode.children.forEach(child => {
+        collectAllFields(child, targetFields)
+      })
+    }
+  })
+  
+  if (sourceFields.length === 0) {
+    ElMessage.warning('未找到源数据字段')
+    return
+  }
+  
+  if (targetFields.length === 0) {
+    ElMessage.warning('未找到目标数据字段')
+    return
+  }
+  
+  // 如果画布已有内容，询问是否清空
+  if (nodeCount.value > 0) {
+    ElMessageBox.confirm(
+      '画布已有内容，智能匹配将清空现有内容并重新生成映射，是否继续？',
+      '提示',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    ).then(() => {
+      // 清空画布
+      graph.clearCells()
+      nodeCount.value = 0
+      nodeCounter = 0
+      
+      // 执行智能匹配
+      doSmartMatch(sourceFields, targetFields)
+    }).catch(() => {
+      // 用户取消
+    })
+  } else {
+    // 直接执行智能匹配
+    doSmartMatch(sourceFields, targetFields)
+  }
+}
+
+/**
+ * 执行智能匹配映射
+ */
+const doSmartMatch = (sourceFields, targetFields) => {
+  if (!graph) return
+  
+  // 为每个目标字段找到最匹配的源字段
+  const matches = []
+  const usedSourceFields = new Set()
+  
+  targetFields.forEach(targetField => {
+    let bestMatch = null
+    let bestScore = 0
+    
+    sourceFields.forEach(sourceField => {
+      // 跳过已使用的源字段
+      if (usedSourceFields.has(sourceField.path)) {
+        return
+      }
+      
+      // 提取字段名（路径的最后一部分）
+      const sourceFieldName = sourceField.label || sourceField.path.split('.').pop().replace(/\[.*?\]/g, '')
+      const targetFieldName = targetField.label || targetField.path.split('.').pop().replace(/\[.*?\]/g, '')
+      
+      // 计算相似度
+      const score = calculateSimilarity(sourceFieldName, targetFieldName)
+      
+      if (score > bestScore && score >= 0.3) { // 相似度阈值：0.3
+        bestScore = score
+        bestMatch = {
+          source: sourceField,
+          target: targetField,
+          score: score
+        }
+      }
+    })
+    
+    // 如果找到匹配，记录并标记源字段为已使用
+    if (bestMatch) {
+      matches.push(bestMatch)
+      usedSourceFields.add(bestMatch.source.path)
+    }
+  })
+  
+  if (matches.length === 0) {
+    ElMessage.warning('未找到匹配的字段，请检查字段名是否相似')
+    return
+  }
+  
+  // 布局参数
+  const nodeWidth = 140
+  const nodeHeight = 40
+  const sourceX = 100
+  const targetX = 400
+  const startY = 100
+  const rowHeight = 100
+  
+  // 按相似度排序，优先显示高相似度的匹配
+  matches.sort((a, b) => b.score - a.score)
+  
+  // 创建节点对和连线
+  matches.forEach((match, index) => {
+    const y = startY + index * rowHeight
+    
+    // 提取字段名
+    const sourcePathParts = match.source.path.split('.')
+    const sourceFieldName = sourcePathParts[sourcePathParts.length - 1].replace(/\[.*?\]/g, '')
+    
+    const targetPathParts = match.target.path.split('.')
+    const targetFieldName = targetPathParts[targetPathParts.length - 1].replace(/\[.*?\]/g, '')
+    
+    // 创建节点对
+    const sId = `s_${++nodeCounter}`
+    const tId = `t_${++nodeCounter}`
+    
+    // 1. 源节点
+    graph.addNode({
+      id: sId,
+      x: sourceX,
+      y: y,
+      width: nodeWidth,
+      height: nodeHeight,
+      label: sourceFieldName,
+      data: { type: 'source', path: match.source.path },
+      ports: {
+        groups: { right: { position: 'right', attrs: { circle: { r: 4, magnet: true, stroke: '#2196f3', fill: '#fff' } } } },
+        items: [{ id: 'p1', group: 'right' }]
+      },
+      attrs: { body: { fill: '#e3f2fd', stroke: '#2196f3', rx: 4 }, text: { text: sourceFieldName, fontSize: 12 } }
+    })
+    
+    // 2. 目标节点
+    graph.addNode({
+      id: tId,
+      x: targetX,
+      y: y,
+      width: nodeWidth,
+      height: nodeHeight,
+      label: targetFieldName,
+      data: { type: 'target', path: match.target.path },
+      ports: {
+        groups: { left: { position: 'left', attrs: { circle: { r: 4, magnet: true, stroke: '#9c27b0', fill: '#fff' } } } },
+        items: [{ id: 'p1', group: 'left' }]
+      },
+      attrs: { body: { fill: '#f3e5f5', stroke: '#9c27b0', rx: 4 }, text: { text: targetFieldName, fontSize: 12 } }
+    })
+    
+    // 3. 连线（显示相似度分数）
+    const scoreText = (match.score * 100).toFixed(0) + '%'
+    graph.addEdge({
+      source: { cell: sId, port: 'p1' },
+      target: { cell: tId, port: 'p1' },
+      attrs: { line: { stroke: '#8f8f8f', strokeWidth: 2 } },
+      data: { 
+        mappingType: 'ONE_TO_ONE', 
+        transformType: 'DIRECT', 
+        transformConfig: {},
+        sourcePath: match.source.path,
+        targetPath: match.target.path
+      },
+      labels: [{ attrs: { text: { text: `DIRECT (${scoreText})`, fontSize: 10 } } }]
+    })
+    
+    nodeCount.value += 2
+  })
+  
+  // 更新映射状态和预览
+  nextTick(() => {
+    updateMappedPaths()
+    updatePreview()
+    zoomToFit()
+    ElMessage.success(`智能匹配完成，已生成 ${matches.length} 个映射规则`)
+  })
 }
 
 /**
