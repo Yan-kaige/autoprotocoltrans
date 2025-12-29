@@ -97,11 +97,14 @@
               :props="treeProps"
               node-key="path"
               :default-expand-all="true"
+              :highlight-current="false"
               class="data-tree"
+              :class="{ 'has-highlight': highlightedSourcePaths.size > 0 }"
           >
             <template #default="{ node, data }">
               <span
                   class="tree-node"
+                  :class="{ 'tree-node-highlighted': highlightedSourcePaths.has(data.path) }"
                   draggable="true"
                   @dragstart="handleTreeDragStart($event, data, 'source')"
                   @dragend="handleTreeDragEnd"
@@ -724,6 +727,12 @@ let minimap = null // 小地图实例
 let highlightNode = null
 let highlightEdge = null
 let clearAllHighlights = null
+
+// 双向追踪高亮相关变量
+const highlightedSourcePaths = ref(new Set()) // 高亮的源路径集合
+const highlightedTargetPaths = ref(new Set()) // 高亮的目标路径集合
+let previewEditorDecorations = [] // Monaco Editor 装饰器ID数组
+const sourceTreeRef = ref(null) // 源数据树引用
 let groovyEditor = null // Monaco Editor 实例（Groovy脚本）
 let sourceJsonEditor = null // Monaco Editor 实例（JSON输入）
 let previewResultEditor = null // Monaco Editor 实例（预览结果）
@@ -1606,6 +1615,225 @@ const handlePreviewFieldClick = (position) => {
   ElMessage.success(`已高亮显示字段 "${fieldPath}" 的数据血缘关系`)
 }
 
+/**
+ * 处理画布节点选中事件（双向追踪）
+ */
+const handleCanvasNodeSelected = (node) => {
+  const nodeData = node.getData()
+  if (!nodeData) return
+  
+  const nodePath = nodeData.path || ''
+  const nodeType = nodeData.type || ''
+  
+  // 清除之前的高亮
+  clearBidirectionalHighlight()
+  
+  if (nodeType === 'source') {
+    // 源节点：高亮源数据树
+    highlightSourceTree(nodePath)
+    
+    // 找到连接到该源节点的所有边和目标节点
+    const edges = graph.getEdges().filter(edge => edge.getSourceCellId() === node.id)
+    edges.forEach(edge => {
+      const targetNodeId = edge.getTargetCellId()
+      const targetNode = graph.getCellById(targetNodeId)
+      if (targetNode) {
+        const targetData = targetNode.getData()
+        const targetPath = targetData?.path || ''
+        if (targetPath) {
+          highlightPreviewResult(targetPath)
+        }
+      }
+    })
+  } else if (nodeType === 'target') {
+    // 目标节点：高亮预览结果
+    highlightPreviewResult(nodePath)
+    
+    // 找到连接到该目标节点的所有边和源节点
+    const edges = graph.getEdges().filter(edge => edge.getTargetCellId() === node.id)
+    edges.forEach(edge => {
+      const sourceNodeId = edge.getSourceCellId()
+      const sourceNode = graph.getCellById(sourceNodeId)
+      if (sourceNode) {
+        const sourceData = sourceNode.getData()
+        const sourcePath = sourceData?.path || ''
+        if (sourcePath) {
+          highlightSourceTree(sourcePath)
+        }
+      }
+    })
+  }
+}
+
+/**
+ * 处理画布连线选中事件（双向追踪）
+ */
+const handleCanvasEdgeSelected = (edge) => {
+  // 清除之前的高亮
+  clearBidirectionalHighlight()
+  
+  // 获取源节点和目标节点
+  const sourceNodeId = edge.getSourceCellId()
+  const targetNodeId = edge.getTargetCellId()
+  
+  const sourceNode = graph.getCellById(sourceNodeId)
+  const targetNode = graph.getCellById(targetNodeId)
+  
+  if (sourceNode) {
+    const sourceData = sourceNode.getData()
+    const sourcePath = sourceData?.path || ''
+    if (sourcePath) {
+      highlightSourceTree(sourcePath)
+    }
+  }
+  
+  if (targetNode) {
+    const targetData = targetNode.getData()
+    const targetPath = targetData?.path || ''
+    if (targetPath) {
+      highlightPreviewResult(targetPath)
+    }
+  }
+}
+
+/**
+ * 高亮源数据树中的字段
+ */
+const highlightSourceTree = (path) => {
+  if (!path) return
+  
+  // 标准化路径（移除 $ 前缀）
+  const normalizedPath = path.replace(/^\$\.?/, '')
+  highlightedSourcePaths.value.add(path)
+  if (normalizedPath !== path) {
+    highlightedSourcePaths.value.add(normalizedPath)
+  }
+  if (normalizedPath) {
+    highlightedSourcePaths.value.add('$.' + normalizedPath)
+  }
+  
+  // 滚动到高亮的节点
+  if (sourceTreeRef.value) {
+    nextTick(() => {
+      // 尝试设置当前节点（Element Plus Tree 的高亮功能）
+      try {
+        sourceTreeRef.value.setCurrentKey(path)
+      } catch (e) {
+        // 如果路径不存在，尝试其他格式
+        try {
+          sourceTreeRef.value.setCurrentKey(normalizedPath)
+        } catch (e2) {
+          // 忽略错误
+        }
+      }
+    })
+  }
+}
+
+/**
+ * 高亮预览结果中的字段
+ */
+const highlightPreviewResult = (targetPath) => {
+  if (!previewResultEditor || !targetPath) return
+  
+  try {
+    const model = previewResultEditor.getModel()
+    if (!model) return
+    
+    // 清除之前的装饰
+    if (previewEditorDecorations.length > 0) {
+      previewResultEditor.deltaDecorations(previewEditorDecorations, [])
+      previewEditorDecorations = []
+    }
+    
+    // 标准化路径（移除可能的 $ 前缀）
+    const normalizedPath = targetPath.replace(/^\$\.?/, '')
+    const pathParts = normalizedPath.split('.')
+    
+    // 在预览结果中查找匹配的字段
+    const content = model.getValue()
+    const lines = content.split('\n')
+    const decorations = []
+    
+    // 如果是 JSON 格式
+    if (targetProtocol.value === 'JSON') {
+      // 查找所有匹配的字段行
+      lines.forEach((line, index) => {
+        const lineNumber = index + 1
+        // 检查行中是否包含目标字段名
+        const lastPart = pathParts[pathParts.length - 1]
+        const fieldPattern = new RegExp(`"${lastPart.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\s*:`, 'g')
+        
+        if (fieldPattern.test(line)) {
+          // 高亮整行
+          decorations.push({
+            range: new window.monaco.Range(lineNumber, 1, lineNumber, line.length + 1),
+            options: {
+              isWholeLine: true,
+              className: 'preview-line-highlight',
+              glyphMarginClassName: 'preview-line-highlight-glyph'
+            }
+          })
+        }
+      })
+    } else {
+      // XML 格式：查找匹配的标签
+      const tagName = pathParts[pathParts.length - 1]
+      const tagPattern = new RegExp(`<${tagName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s>]`, 'g')
+      
+      lines.forEach((line, index) => {
+        const lineNumber = index + 1
+        if (tagPattern.test(line)) {
+          decorations.push({
+            range: new window.monaco.Range(lineNumber, 1, lineNumber, line.length + 1),
+            options: {
+              isWholeLine: true,
+              className: 'preview-line-highlight',
+              glyphMarginClassName: 'preview-line-highlight-glyph'
+            }
+          })
+        }
+      })
+    }
+    
+    // 应用装饰
+    if (decorations.length > 0) {
+      previewEditorDecorations = previewResultEditor.deltaDecorations([], decorations)
+      
+      // 滚动到第一个高亮的行
+      const firstDecoration = decorations[0]
+      if (firstDecoration && firstDecoration.range) {
+        previewResultEditor.revealLineInCenter(firstDecoration.range.startLineNumber)
+      }
+    }
+  } catch (e) {
+    console.error('高亮预览结果失败:', e)
+  }
+}
+
+/**
+ * 清除双向追踪高亮
+ */
+const clearBidirectionalHighlight = () => {
+  // 清除源数据树高亮
+  highlightedSourcePaths.value.clear()
+  
+  // 清除预览结果高亮
+  if (previewResultEditor && previewEditorDecorations.length > 0) {
+    previewResultEditor.deltaDecorations(previewEditorDecorations, [])
+    previewEditorDecorations = []
+  }
+  
+  // 清除树节点的当前选中
+  if (sourceTreeRef.value) {
+    try {
+      sourceTreeRef.value.setCurrentKey(null)
+    } catch (e) {
+      // 忽略错误
+    }
+  }
+}
+
 const initGraph = () => {
   if (!graphContainer.value) return
 
@@ -1909,9 +2137,13 @@ const initGraph = () => {
     if (cell.isNode()) {
       // 高亮与选中节点相关的所有边
       highlightNodeEdges(cell)
+      // 双向追踪：高亮源数据树和预览结果
+      handleCanvasNodeSelected(cell)
     } else if (cell.isEdge()) {
       // 如果选中的是边，也高亮该边
       highlightEdge(cell)
+      // 双向追踪：高亮源数据树和预览结果
+      handleCanvasEdgeSelected(cell)
     }
   })
   
@@ -1919,6 +2151,8 @@ const initGraph = () => {
   graph.on('cell:unselected', ({ cell }) => {
     // 恢复所有边的样式
     restoreAllEdges()
+    // 清除双向追踪高亮
+    clearBidirectionalHighlight()
   })
   
   // --- 右键菜单功能 ---
@@ -4998,6 +5232,37 @@ const loadRulesToCanvas = async (rules) => {
   text-align: center;
   white-space: nowrap;
 }
+/* 双向追踪高亮样式 */
+.tree-node-highlighted {
+  background-color: #fff3cd !important;
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-weight: 500;
+}
+
+.data-tree.has-highlight .tree-node-highlighted {
+  animation: highlight-pulse 1.5s ease-in-out;
+}
+
+@keyframes highlight-pulse {
+  0%, 100% {
+    background-color: #fff3cd;
+  }
+  50% {
+    background-color: #ffc107;
+  }
+}
+
+/* Monaco Editor 行高亮样式 */
+:global(.preview-line-highlight) {
+  background-color: #fff3cd !important;
+}
+
+:global(.preview-line-highlight-glyph) {
+  background-color: #ffc107 !important;
+  width: 4px !important;
+}
+
 .preview-panel { 
   display: flex; 
   flex-direction: column; 
