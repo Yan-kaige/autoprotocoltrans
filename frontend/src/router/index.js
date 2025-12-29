@@ -5,6 +5,7 @@ import CanvasEditor from '../views/CanvasEditor.vue'
 import ConfigList from '../views/ConfigList.vue'
 import DictionaryList from '../views/DictionaryList.vue'
 import FunctionList from '../views/FunctionList.vue'
+import StandardProtocolList from '../views/StandardProtocolList.vue'
 
 const routes = [
   {
@@ -31,6 +32,11 @@ const routes = [
     path: '/function',
     name: 'FunctionList',
     component: FunctionList
+  },
+  {
+    path: '/standard-protocol',
+    name: 'StandardProtocolList',
+    component: StandardProtocolList
   },
   {
     path: '/rule',

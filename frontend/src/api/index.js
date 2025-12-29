@@ -135,5 +135,38 @@ export const dictionaryApi = {
     })
 }
 
+// 标准协议管理API
+export const standardProtocolApi = {
+  // 获取所有标准协议
+  getAllProtocols: () => api.get('/standard-protocol'),
+  
+  // 根据协议类型获取启用的协议列表
+  getProtocolsByType: (protocolType) => 
+    api.get('/standard-protocol/by-type', {
+      params: { protocolType }
+    }),
+  
+  // 根据ID获取协议
+  getProtocolById: (id) => api.get(`/standard-protocol/${id}`),
+  
+  // 保存协议（新增或更新）
+  saveProtocol: (id, name, code, description, protocolType, dataFormat, category) =>
+    api.post('/standard-protocol', {
+      id: id || null,
+      name,
+      code,
+      description,
+      protocolType,
+      dataFormat,
+      category
+    }),
+  
+  // 删除协议
+  deleteProtocol: (id) => api.delete(`/standard-protocol/${id}`),
+  
+  // 切换启用状态
+  toggleEnabled: (id) => api.post(`/standard-protocol/${id}/toggle-enabled`)
+}
+
 export default api
 

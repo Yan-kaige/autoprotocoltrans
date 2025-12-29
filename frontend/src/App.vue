@@ -28,6 +28,10 @@
           <el-icon><Operation /></el-icon>
           <span>函数管理</span>
         </el-menu-item>
+        <el-menu-item index="/standard-protocol">
+          <el-icon><Document /></el-icon>
+          <span>标准协议</span>
+        </el-menu-item>
       </el-menu>
     </el-aside>
     <el-main class="app-main">
@@ -51,8 +55,10 @@ const activeMenu = computed(() => {
     return '/config'
   } else if (path.startsWith('/dictionary')) {
     return '/dictionary'
-  } else if (path.startsWith('/function')) {
+  } else   if (path.startsWith('/function')) {
     return '/function'
+  } else if (path.startsWith('/standard-protocol')) {
+    return '/standard-protocol'
   }
   return path
 })

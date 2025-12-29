@@ -19,30 +19,48 @@
             />
           </div>
           <div v-show="!sourcePanelCollapsed" class="panel-content">
-          <div style="margin-bottom: 10px; display: flex; gap: 10px; align-items: center;">
-            <el-select v-model="sourceProtocol" style="flex: 1;" @change="onSourceProtocolChange">
-              <el-option label="JSON" value="JSON" />
-              <el-option label="XML" value="XML" />
-            </el-select>
-            <el-button 
-              size="small" 
-              @click="generateRandomData"
-              :disabled="!sourceTreeData || sourceTreeData.length === 0"
-              title="根据当前结构生成随机测试数据"
-              type="success"
-            >
-              <el-icon><Plus /></el-icon>
-              MOCK
-            </el-button>
-            <el-button
-              size="small"
-              @click="formatSourceData"
-              :disabled="!sourceJson.trim()"
-              title="格式化"
-            >
-              <el-icon><Setting /></el-icon>
-              格式化
-            </el-button>
+          <div style="margin-bottom: 10px;">
+            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 8px; flex-wrap: wrap;">
+              <el-select v-model="sourceProtocol" style="flex: 1; min-width: 100px;" @change="onSourceProtocolChange">
+                <el-option label="JSON" value="JSON" />
+                <el-option label="XML" value="XML" />
+              </el-select>
+              <el-select 
+                v-model="selectedSourceProtocolId" 
+                placeholder="选择标准协议"
+                clearable
+                style="flex: 1; min-width: 150px;"
+                @change="loadSourceProtocol"
+              >
+                <el-option
+                  v-for="protocol in sourceProtocolList"
+                  :key="protocol.id"
+                  :label="`${protocol.name} (${protocol.category || '未分类'})`"
+                  :value="protocol.id"
+                />
+              </el-select>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center;">
+              <el-button 
+                size="small" 
+                @click="generateRandomData"
+                :disabled="!sourceTreeData || sourceTreeData.length === 0"
+                title="根据当前结构生成随机测试数据"
+                type="success"
+              >
+                <el-icon><Plus /></el-icon>
+                MOCK
+              </el-button>
+              <el-button
+                size="small"
+                @click="formatSourceData"
+                :disabled="!sourceJson.trim()"
+                title="格式化"
+              >
+                <el-icon><Setting /></el-icon>
+                格式化
+              </el-button>
+            </div>
           </div>
           
           <!-- 输入区域和树区域容器 -->
@@ -204,11 +222,25 @@
               <div style="margin-bottom: 10px; font-size: 12px; color: #666;">
                 输入目标数据结构，系统将根据字段名相似度自动匹配映射
               </div>
+              <el-select 
+                v-model="selectedTargetProtocolId" 
+                placeholder="选择标准协议（可选）"
+                clearable
+                style="width: 100%; margin-bottom: 10px;"
+                @change="loadTargetProtocol"
+              >
+                <el-option
+                  v-for="protocol in targetProtocolList"
+                  :key="protocol.id"
+                  :label="`${protocol.name} (${protocol.category || '未分类'})`"
+                  :value="protocol.id"
+                />
+              </el-select>
               <el-input
                 v-model="targetJson"
                 type="textarea"
                 :rows="4"
-                placeholder="请输入目标数据结构（JSON或XML）用于智能匹配"
+                placeholder="请输入目标数据结构（JSON或XML）用于智能匹配，或从上方选择标准协议"
                 style="margin-bottom: 10px;"
                 @input="parseTargetTree"
               />
@@ -651,7 +683,7 @@ import { Selection } from '@antv/x6-plugin-selection'
 import { MiniMap } from '@antv/x6-plugin-minimap'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Document, Delete, Plus, ArrowLeft, ArrowRight, ArrowDown, FullScreen, ZoomIn, ZoomOut, Search, Check, Edit, Setting, Close } from '@element-plus/icons-vue'
-import { transformV2Api, configApi, dictionaryApi, functionApi } from '../api'
+import { transformV2Api, configApi, dictionaryApi, functionApi, standardProtocolApi } from '../api'
 import { useRoute, useRouter } from 'vue-router'
 import loader from '@monaco-editor/loader'
 
@@ -674,6 +706,12 @@ const targetTreeData = ref([]) // 目标数据树结构
 const targetParseError = ref('') // 目标数据解析错误信息
 const nodeCount = ref(0) // 节点数量，用于判断画布是否为空
 const isCanvasEmpty = computed(() => nodeCount.value === 0)
+
+// 标准协议相关变量
+const selectedSourceProtocolId = ref(null) // 选中的源标准协议ID
+const selectedTargetProtocolId = ref(null) // 选中的目标标准协议ID
+const sourceProtocolList = ref([]) // 源标准协议列表
+const targetProtocolList = ref([]) // 目标标准协议列表
 
 // 拖动调整面板宽度
 let isResizingPanels = false
@@ -1094,6 +1132,9 @@ onMounted(() => {
     }
     // 初始化预览结果编辑器
     initPreviewResultEditor()
+    // 加载标准协议列表
+    loadSourceProtocolList()
+    loadTargetProtocolList()
     // 检查URL参数，如果是编辑模式则加载配置
     const configId = route.query.configId
     if (configId) {
@@ -2754,6 +2795,95 @@ const onSourceProtocolChange = () => {
   // 切换协议类型时，清空错误信息并重新解析
   sourceParseError.value = ''
   parseSourceTree()
+  // 重新加载源标准协议列表
+  loadSourceProtocolList()
+}
+
+// 加载源标准协议列表
+const loadSourceProtocolList = async () => {
+  try {
+    const response = await standardProtocolApi.getProtocolsByType(sourceProtocol.value)
+    if (response.data.success) {
+      sourceProtocolList.value = response.data.data || []
+    }
+  } catch (error) {
+    console.error('加载源标准协议列表失败:', error)
+  }
+}
+
+// 加载目标标准协议列表
+const loadTargetProtocolList = async () => {
+  try {
+    const response = await standardProtocolApi.getProtocolsByType(targetProtocol.value)
+    if (response.data.success) {
+      targetProtocolList.value = response.data.data || []
+    }
+  } catch (error) {
+    console.error('加载目标标准协议列表失败:', error)
+  }
+}
+
+// 加载源标准协议数据
+const loadSourceProtocol = async (protocolId) => {
+  if (!protocolId) {
+    selectedSourceProtocolId.value = null
+    return
+  }
+  
+  try {
+    const response = await standardProtocolApi.getProtocolById(protocolId)
+    if (response.data.success) {
+      const protocol = response.data.data
+      sourceJson.value = protocol.dataFormat || ''
+      // 如果协议类型不匹配，切换协议类型
+      if (protocol.protocolType !== sourceProtocol.value) {
+        sourceProtocol.value = protocol.protocolType
+      }
+      // 更新Monaco Editor（如果是JSON）
+      if (sourceProtocol.value === 'JSON' && sourceJsonEditor) {
+        sourceJsonEditor.setValue(sourceJson.value)
+        sourceJsonEditor.getAction('editor.action.formatDocument').run().catch(() => {})
+      }
+      // 重新解析
+      parseSourceTree()
+      ElMessage.success(`已加载标准协议: ${protocol.name}`)
+    } else {
+      ElMessage.error('加载标准协议失败: ' + response.data.errorMessage)
+      selectedSourceProtocolId.value = null
+    }
+  } catch (error) {
+    ElMessage.error('加载标准协议失败: ' + error.message)
+    selectedSourceProtocolId.value = null
+  }
+}
+
+// 加载目标标准协议数据
+const loadTargetProtocol = async (protocolId) => {
+  if (!protocolId) {
+    selectedTargetProtocolId.value = null
+    return
+  }
+  
+  try {
+    const response = await standardProtocolApi.getProtocolById(protocolId)
+    if (response.data.success) {
+      const protocol = response.data.data
+      targetJson.value = protocol.dataFormat || ''
+      // 如果协议类型不匹配，切换协议类型
+      if (protocol.protocolType !== targetProtocol.value) {
+        targetProtocol.value = protocol.protocolType
+      }
+      // 重新解析
+      parseTargetTree()
+      ElMessage.success(`已加载标准协议: ${protocol.name}`)
+    } else {
+      ElMessage.error('加载标准协议失败: ' + response.data.errorMessage)
+      selectedTargetProtocolId.value = null
+    }
+  } catch (error) {
+    ElMessage.error('加载标准协议失败: ' + error.message)
+    selectedTargetProtocolId.value = null
+  }
 }
 
 // 监听目标协议类型变化，重新解析目标数据
@@ -2762,6 +2892,8 @@ watch(targetProtocol, () => {
     targetParseError.value = ''
     parseTargetTree()
   }
+  // 重新加载目标标准协议列表
+  loadTargetProtocolList()
 })
 
 // 生成随机数据
