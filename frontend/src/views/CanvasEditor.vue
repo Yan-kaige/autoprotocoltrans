@@ -386,10 +386,50 @@
                 全屏编辑
               </el-button>
             </div>
-            <div 
-              id="groovy-monaco-editor" 
-              style="width: 100%; pointer-events: auto !important;"
-            ></div>
+            <div class="monaco-editor-container" :class="{ 'with-sidebar': isEditorFullScreen }">
+              <div 
+                id="groovy-monaco-editor" 
+                class="groovy-editor"
+                style="width: 100%; pointer-events: auto !important;"
+              ></div>
+              <!-- 全屏模式下的函数助手面板 -->
+              <div v-if="isEditorFullScreen" class="function-helper-sidebar">
+                <div class="function-helper-header">
+                  <h4>常用函数助手</h4>
+                  <el-button 
+                    text 
+                    :icon="Close" 
+                    @click="toggleEditorFullScreen"
+                    size="small"
+                    title="关闭全屏"
+                  />
+                </div>
+                <div class="function-helper-content">
+                  <div 
+                    v-for="category in functionCategories" 
+                    :key="category.name"
+                    class="function-category"
+                  >
+                    <div class="category-header" @click="toggleCategory(category.name)">
+                      <el-icon><ArrowRight v-if="!category.expanded" /><ArrowDown v-else /></el-icon>
+                      <span>{{ category.label }}</span>
+                    </div>
+                    <div v-show="category.expanded" class="category-functions">
+                      <div
+                        v-for="func in category.functions"
+                        :key="func.name"
+                        class="function-item"
+                        :title="func.description"
+                        @dblclick="insertFunction(func)"
+                      >
+                        <div class="function-name">{{ func.name }}</div>
+                        <div class="function-desc">{{ func.description }}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
           <div style="font-size: 12px; color: #999; margin-top: 5px;">
             <div><strong>变量说明：</strong></div>
@@ -610,7 +650,7 @@ import { Graph } from '@antv/x6'
 import { Selection } from '@antv/x6-plugin-selection'
 import { MiniMap } from '@antv/x6-plugin-minimap'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Document, Delete, Plus, ArrowLeft, ArrowRight, FullScreen, ZoomIn, ZoomOut, Search, Check, Edit, Setting, Close } from '@element-plus/icons-vue'
+import { Document, Delete, Plus, ArrowLeft, ArrowRight, ArrowDown, FullScreen, ZoomIn, ZoomOut, Search, Check, Edit, Setting, Close } from '@element-plus/icons-vue'
 import { transformV2Api, configApi, dictionaryApi, functionApi } from '../api'
 import { useRoute, useRouter } from 'vue-router'
 import loader from '@monaco-editor/loader'
@@ -1288,6 +1328,14 @@ const initGroovyEditor = async () => {
         }
       })
       
+      // 注册 Snippet 提供器（用于插入函数代码）
+      monaco.languages.registerCompletionItemProvider('javascript', {
+        provideCompletionItems: (model, position) => {
+          // 这里可以添加自动完成功能，但主要使用双击插入
+          return { suggestions: [] }
+        }
+      })
+      
       // ESC 键退出全屏（只在全屏时生效）
       groovyEditor.addAction({
         id: 'exit-fullscreen',
@@ -1808,6 +1856,275 @@ const highlightPreviewResult = (targetPath) => {
     }
   } catch (e) {
     console.error('高亮预览结果失败:', e)
+  }
+}
+
+/**
+ * 函数助手相关函数
+ */
+const functionCategories = ref([
+  {
+    name: 'desensitize',
+    label: '脱敏函数',
+    expanded: true,
+    functions: [
+      {
+        name: 'maskPhone',
+        description: '手机号脱敏（保留前3后4位）',
+        snippet: 'def maskPhone(input) {\n  if (!input) return \'\'\n  String str = input.toString()\n  if (str.length() == 11) {\n    return str.substring(0, 3) + \'****\' + str.substring(7)\n  }\n  return str\n}\nreturn maskPhone(${1:input})'
+      },
+      {
+        name: 'maskEmail',
+        description: '邮箱脱敏（保留@前1位）',
+        snippet: 'def maskEmail(input) {\n  if (!input) return \'\'\n  String str = input.toString()\n  int atIndex = str.indexOf(\'@\')\n  if (atIndex > 0) {\n    return str.substring(0, 1) + \'***\' + str.substring(atIndex)\n  }\n  return str\n}\nreturn maskEmail(${1:input})'
+      },
+      {
+        name: 'maskIdCard',
+        description: '身份证脱敏（保留前3后4位）',
+        snippet: 'def maskIdCard(input) {\n  if (!input) return \'\'\n  String str = input.toString()\n  if (str.length() >= 7) {\n    return str.substring(0, 3) + \'**********\' + str.substring(str.length() - 4)\n  }\n  return str\n}\nreturn maskIdCard(${1:input})'
+      },
+      {
+        name: 'maskName',
+        description: '姓名脱敏（保留首字）',
+        snippet: 'def maskName(input) {\n  if (!input) return \'\'\n  String str = input.toString()\n  if (str.length() > 1) {\n    def stars = \'\'\n    for (int i = 0; i < str.length() - 1; i++) {\n      stars += \'*\'\n    }\n    return str.substring(0, 1) + stars\n  }\n  return str\n}\nreturn maskName(${1:input})'
+      }
+    ]
+  },
+  {
+    name: 'date',
+    label: '日期转换',
+    expanded: true,
+    functions: [
+      {
+        name: 'formatDate',
+        description: '格式化日期',
+        snippet: 'import java.text.SimpleDateFormat\nimport java.util.Date\n\ndef formatDate(input, format = \'yyyy-MM-dd HH:mm:ss\') {\n  if (!input) return \'\'\n  try {\n    Date date = input instanceof Date ? input : new Date(input.toString())\n    SimpleDateFormat sdf = new SimpleDateFormat(format)\n    return sdf.format(date)\n  } catch (e) {\n    return input.toString()\n  }\n}\nreturn formatDate(${1:input}, \'${2:yyyy-MM-dd HH:mm:ss}\')'
+      },
+      {
+        name: 'parseDate',
+        description: '解析日期字符串',
+        snippet: 'import java.text.SimpleDateFormat\nimport java.util.Date\n\ndef parseDate(input, format = \'yyyy-MM-dd HH:mm:ss\') {\n  if (!input) return null\n  try {\n    SimpleDateFormat sdf = new SimpleDateFormat(format)\n    return sdf.parse(input.toString())\n  } catch (e) {\n    return null\n  }\n}\nreturn parseDate(${1:input}, \'${2:yyyy-MM-dd HH:mm:ss}\')'
+      },
+      {
+        name: 'dateAdd',
+        description: '日期加减（天数）',
+        snippet: 'import java.util.Calendar\nimport java.util.Date\n\ndef dateAdd(input, days) {\n  if (!input) return null\n  try {\n    Date date = input instanceof Date ? input : new Date(input.toString())\n    Calendar cal = Calendar.getInstance()\n    cal.setTime(date)\n    cal.add(Calendar.DAY_OF_MONTH, days)\n    return cal.getTime()\n  } catch (e) {\n    return input\n  }\n}\nreturn dateAdd(${1:input}, ${2:0})'
+      },
+      {
+        name: 'getCurrentDate',
+        description: '获取当前日期',
+        snippet: 'import java.text.SimpleDateFormat\nimport java.util.Date\n\nSimpleDateFormat sdf = new SimpleDateFormat(\'${1:yyyy-MM-dd HH:mm:ss}\')\nreturn sdf.format(new Date())'
+      }
+    ]
+  },
+  {
+    name: 'number',
+    label: '数字处理',
+    expanded: true,
+    functions: [
+      {
+        name: 'formatAmount',
+        description: '金额千分位格式化',
+        snippet: 'def formatAmount(input) {\n  if (input == null) return \'0.00\'\n  try {\n    double amount = Double.parseDouble(input.toString())\n    return String.format(\'%,.2f\', amount)\n  } catch (e) {\n    return input.toString()\n  }\n}\nreturn formatAmount(${1:input})'
+      },
+      {
+        name: 'round',
+        description: '四舍五入',
+        snippet: 'def round(input, decimals = 2) {\n  if (input == null) return 0\n  try {\n    double num = Double.parseDouble(input.toString())\n    return Math.round(num * Math.pow(10, decimals)) / Math.pow(10, decimals)\n  } catch (e) {\n    return input\n  }\n}\nreturn round(${1:input}, ${2:2})'
+      },
+      {
+        name: 'toInt',
+        description: '转换为整数',
+        snippet: 'def toInt(input) {\n  if (input == null) return 0\n  try {\n    return Integer.parseInt(input.toString())\n  } catch (e) {\n    return 0\n  }\n}\nreturn toInt(${1:input})'
+      },
+      {
+        name: 'toDouble',
+        description: '转换为浮点数',
+        snippet: 'def toDouble(input) {\n  if (input == null) return 0.0\n  try {\n    return Double.parseDouble(input.toString())\n  } catch (e) {\n    return 0.0\n  }\n}\nreturn toDouble(${1:input})'
+      }
+    ]
+  },
+  {
+    name: 'string',
+    label: '字符串处理',
+    expanded: true,
+    functions: [
+      {
+        name: 'trim',
+        description: '去除首尾空格',
+        snippet: 'return ${1:input}?.toString()?.trim() ?: \'\''
+      },
+      {
+        name: 'upperCase',
+        description: '转大写',
+        snippet: 'return ${1:input}?.toString()?.toUpperCase() ?: \'\''
+      },
+      {
+        name: 'lowerCase',
+        description: '转小写',
+        snippet: 'return ${1:input}?.toString()?.toLowerCase() ?: \'\''
+      },
+      {
+        name: 'substring',
+        description: '截取字符串',
+        snippet: 'def str = ${1:input}?.toString() ?: \'\'\nreturn str.length() > ${2:0} ? str.substring(${2:0}, Math.min(${3:str.length()}, str.length())) : \'\''
+      },
+      {
+        name: 'replace',
+        description: '替换字符串',
+        snippet: 'return ${1:input}?.toString()?.replace(\'${2:old}\', \'${3:new}\') ?: \'\''
+      },
+      {
+        name: 'split',
+        description: '分割字符串',
+        snippet: 'def parts = ${1:input}?.toString()?.split(\'${2:,}\') ?: []\nreturn parts'
+      }
+    ]
+  },
+  {
+    name: 'collection',
+    label: '集合处理',
+    expanded: true,
+    functions: [
+      {
+        name: 'join',
+        description: '数组拼接',
+        snippet: 'def list = ${1:input} as List\nreturn list?.collect { it?.toString() ?: \'\' }?.join(\'${2:,}\') ?: \'\''
+      },
+      {
+        name: 'filter',
+        description: '过滤数组',
+        snippet: 'def list = ${1:input} as List\nreturn list?.findAll { ${2:it != null} } ?: []'
+      },
+      {
+        name: 'map',
+        description: '映射数组',
+        snippet: 'def list = ${1:input} as List\nreturn list?.collect { ${2:it?.toString()} } ?: []'
+      },
+      {
+        name: 'size',
+        description: '获取数组长度',
+        snippet: 'def list = ${1:input} as List\nreturn list?.size() ?: 0'
+      }
+    ]
+  }
+])
+
+const toggleCategory = (categoryName) => {
+  const category = functionCategories.value.find(cat => cat.name === categoryName)
+  if (category) {
+    category.expanded = !category.expanded
+  }
+}
+
+const insertFunction = (func) => {
+  if (!groovyEditor) return
+  
+  try {
+    const position = groovyEditor.getPosition()
+    const model = groovyEditor.getModel()
+    
+    if (!position || !model) return
+    
+    // 获取当前行的缩进
+    const lineContent = model.getLineContent(position.lineNumber)
+    const indentMatch = lineContent.match(/^(\s*)/)
+    const indent = indentMatch ? indentMatch[1] : ''
+    
+    // 处理 Snippet 占位符（${1:value} 格式）
+    // 将占位符替换为实际值，避免 Groovy 解析错误
+    let snippet = func.snippet
+    
+    // 提取所有占位符信息（用于后续选中）
+    const placeholderMatches = []
+    const placeholderRegex = /\$\{(\d+):([^}]+)\}/g
+    let match
+    while ((match = placeholderRegex.exec(snippet)) !== null) {
+      placeholderMatches.push({
+        index: match.index,
+        number: parseInt(match[1]),
+        value: match[2],
+        fullMatch: match[0]
+      })
+    }
+    
+    // 按索引从后往前排序，避免替换时索引变化
+    placeholderMatches.sort((a, b) => b.index - a.index)
+    
+    // 替换所有占位符为实际值
+    placeholderMatches.forEach(placeholder => {
+      snippet = snippet.substring(0, placeholder.index) + 
+                placeholder.value + 
+                snippet.substring(placeholder.index + placeholder.fullMatch.length)
+    })
+    
+    // 如果当前行有内容，在下一行插入
+    const insertLine = lineContent.trim() ? position.lineNumber + 1 : position.lineNumber
+    const insertColumn = 1
+    
+    // 添加缩进（除了第一行）
+    const lines = snippet.split('\n')
+    const formattedLines = lines.map((line, index) => {
+      if (index === 0) return line
+      return indent + line
+    })
+    snippet = formattedLines.join('\n')
+    
+    // 插入代码
+    const range = new window.monaco.Range(insertLine, insertColumn, insertLine, insertColumn)
+    groovyEditor.executeEdits('insert-function', [{
+      range: range,
+      text: snippet
+    }])
+    
+    // 设置光标位置到第一个占位符的位置（现在是实际值）
+    if (placeholderMatches.length > 0) {
+      // 找到第一个占位符（编号最小的）
+      const firstPlaceholder = placeholderMatches.sort((a, b) => a.number - b.number)[0]
+      
+      // 计算占位符在替换后的位置
+      // 需要重新计算，因为之前的替换可能改变了索引
+      const originalSnippet = func.snippet
+      let currentIndex = 0
+      let replacedSnippet = originalSnippet
+      const sortedPlaceholders = [...placeholderMatches].sort((a, b) => a.index - b.index)
+      
+      sortedPlaceholders.forEach(placeholder => {
+        const beforeReplace = replacedSnippet.substring(0, placeholder.index)
+        const afterReplace = replacedSnippet.substring(placeholder.index + placeholder.fullMatch.length)
+        replacedSnippet = beforeReplace + placeholder.value + afterReplace
+      })
+      
+      // 找到第一个占位符值在最终代码中的位置
+      const firstValue = firstPlaceholder.value
+      const valueIndex = snippet.indexOf(firstValue)
+      
+      if (valueIndex >= 0) {
+        const linesBeforeValue = snippet.substring(0, valueIndex).split('\n')
+        const lineOffset = linesBeforeValue.length - 1
+        const columnOffset = linesBeforeValue[linesBeforeValue.length - 1].length
+        
+        groovyEditor.setPosition({
+          lineNumber: insertLine + lineOffset,
+          column: columnOffset + 1
+        })
+        
+        // 选中该值，方便用户修改
+        const valueRange = new window.monaco.Range(
+          insertLine + lineOffset,
+          columnOffset + 1,
+          insertLine + lineOffset,
+          columnOffset + 1 + firstValue.length
+        )
+        groovyEditor.setSelection(valueRange)
+      }
+    }
+    
+    groovyEditor.focus()
+    ElMessage.success(`已插入函数: ${func.name}`)
+  } catch (e) {
+    console.error('插入函数失败:', e)
+    ElMessage.error('插入函数失败: ' + e.message)
   }
 }
 
@@ -5504,6 +5821,132 @@ const loadRulesToCanvas = async (rules) => {
   height: 400px !important;
   border-radius: 4px;
   border: 1px solid #dcdfe6;
+}
+
+/* 编辑器容器（全屏模式下包含侧边栏） */
+.monaco-editor-container {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
+.monaco-editor-container.with-sidebar {
+  flex-direction: row;
+}
+
+.groovy-editor {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 函数助手侧边栏 */
+.function-helper-sidebar {
+  width: 300px;
+  background-color: #f5f7fa;
+  border-left: 1px solid #e4e7ed;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.function-helper-header {
+  padding: 12px 16px;
+  background-color: #fff;
+  border-bottom: 1px solid #e4e7ed;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.function-helper-header h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: #303133;
+}
+
+.function-helper-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.function-category {
+  margin-bottom: 8px;
+  background-color: #fff;
+  border-radius: 4px;
+  border: 1px solid #e4e7ed;
+  overflow: hidden;
+}
+
+.category-header {
+  padding: 10px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #606266;
+  background-color: #fafafa;
+  user-select: none;
+  transition: background-color 0.2s;
+}
+
+.category-header:hover {
+  background-color: #f0f2f5;
+}
+
+.category-header .el-icon {
+  font-size: 12px;
+  color: #909399;
+}
+
+.category-functions {
+  padding: 4px 0;
+}
+
+.function-item {
+  padding: 10px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid #f0f2f5;
+  transition: background-color 0.2s;
+  user-select: none;
+}
+
+.function-item:last-child {
+  border-bottom: none;
+}
+
+.function-item:hover {
+  background-color: #ecf5ff;
+}
+
+.function-item:active {
+  background-color: #d9ecff;
+}
+
+.function-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #303133;
+  margin-bottom: 4px;
+}
+
+.function-desc {
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.4;
+}
+
+/* 全屏模式下的编辑器布局调整 */
+.monaco-wrapper.is-fullscreen .monaco-editor-container {
+  height: 100vh;
+}
+
+.monaco-wrapper.is-fullscreen #groovy-monaco-editor {
+  height: 100% !important;
 }
 </style>
 
