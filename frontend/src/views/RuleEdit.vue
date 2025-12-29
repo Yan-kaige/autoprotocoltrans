@@ -68,12 +68,24 @@
       </template>
       <div class="test-container">
         <div class="test-input">
-          <h3>源数据</h3>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h3 style="margin: 0;">源数据</h3>
+            <el-button 
+              size="small" 
+              type="success"
+              @click="generateRandomData"
+              :disabled="!testSourceData.trim()"
+              title="根据当前数据结构生成随机测试数据"
+            >
+              <el-icon><Plus /></el-icon>
+              生成随机数据
+            </el-button>
+          </div>
           <el-input
             v-model="testSourceData"
             type="textarea"
             :rows="10"
-            placeholder="请输入源数据（JSON或XML）"
+            placeholder="请输入源数据（JSON或XML），然后可以点击生成随机数据按钮自动填充测试数据"
           />
         </div>
         <div class="test-actions">
@@ -232,6 +244,251 @@ const testTransform = async () => {
 
 const goBack = () => {
   router.push('/')
+}
+
+// 生成随机数据
+const generateRandomData = () => {
+  if (!testSourceData.value.trim()) {
+    ElMessage.warning('请先输入源数据结构')
+    return
+  }
+  
+  try {
+    let data
+    // 解析现有数据获取结构
+    if (rule.value.sourceType === 'XML') {
+      const parser = new DOMParser()
+      const xmlDoc = parser.parseFromString(testSourceData.value, 'text/xml')
+      const parseError = xmlDoc.querySelector('parsererror')
+      if (parseError) {
+        ElMessage.error('XML格式错误，无法生成随机数据')
+        return
+      }
+      data = parseXmlToObject(testSourceData.value)
+    } else {
+      data = JSON.parse(testSourceData.value)
+    }
+    
+    // 生成 Mock 数据
+    const mockData = generateMockDataFromObject(data)
+    
+    // 格式化输出
+    if (rule.value.sourceType === 'JSON') {
+      testSourceData.value = JSON.stringify(mockData, null, 2)
+    } else {
+      testSourceData.value = objectToXml(mockData)
+    }
+    
+    ElMessage.success('随机数据生成成功')
+  } catch (e) {
+    ElMessage.error('生成随机数据失败: ' + e.message)
+    console.error('生成随机数据错误:', e)
+  }
+}
+
+// 从对象生成 Mock 数据
+const generateMockDataFromObject = (obj) => {
+  if (Array.isArray(obj)) {
+    const length = Math.min(obj.length, 3) // 最多3个元素
+    return Array.from({ length }, (_, i) => {
+      if (obj[i] && typeof obj[i] === 'object') {
+        return generateMockDataFromObject(obj[i])
+      }
+      return generateRandomValueByType(typeof obj[i], '')
+    })
+  } else if (obj && typeof obj === 'object') {
+    const result = {}
+    Object.keys(obj).forEach(key => {
+      const value = obj[key]
+      if (Array.isArray(value)) {
+        result[key] = generateMockDataFromObject(value)
+      } else if (value && typeof value === 'object') {
+        result[key] = generateMockDataFromObject(value)
+      } else {
+        result[key] = generateRandomValueByType(typeof value, key)
+      }
+    })
+    return result
+  } else {
+    return generateRandomValueByType(typeof obj, '')
+  }
+}
+
+// 根据类型和字段名生成随机值
+const generateRandomValueByType = (type, fieldName = '') => {
+  const lowerFieldName = fieldName.toLowerCase()
+  
+  // 根据字段名推断类型（更智能的生成）
+  if (lowerFieldName.includes('id') || lowerFieldName.includes('code')) {
+    return Math.floor(Math.random() * 1000000).toString()
+  }
+  if (lowerFieldName.includes('name') || lowerFieldName.includes('title')) {
+    const names = ['张三', '李四', '王五', '赵六', '钱七', '孙八', '周九', '吴十']
+    return names[Math.floor(Math.random() * names.length)]
+  }
+  if (lowerFieldName.includes('email')) {
+    const domains = ['example.com', 'test.com', 'demo.com']
+    return `user${Math.floor(Math.random() * 1000)}@${domains[Math.floor(Math.random() * domains.length)]}`
+  }
+  if (lowerFieldName.includes('phone') || lowerFieldName.includes('mobile')) {
+    return `1${Math.floor(Math.random() * 9) + 1}${String(Math.floor(Math.random() * 100000000)).padStart(9, '0')}`
+  }
+  if (lowerFieldName.includes('address') || lowerFieldName.includes('addr')) {
+    const addresses = ['北京市朝阳区', '上海市浦东新区', '广州市天河区', '深圳市南山区', '杭州市西湖区']
+    return addresses[Math.floor(Math.random() * addresses.length)]
+  }
+  if (lowerFieldName.includes('date') || lowerFieldName.includes('time')) {
+    const now = new Date()
+    const daysAgo = Math.floor(Math.random() * 365)
+    const date = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000)
+    return date.toISOString().split('T')[0]
+  }
+  if (lowerFieldName.includes('age')) {
+    return Math.floor(Math.random() * 50) + 18
+  }
+  if (lowerFieldName.includes('price') || lowerFieldName.includes('amount') || lowerFieldName.includes('money')) {
+    return parseFloat((Math.random() * 10000).toFixed(2))
+  }
+  if (lowerFieldName.includes('status') || lowerFieldName.includes('state')) {
+    const statuses = ['active', 'inactive', 'pending', 'completed', 'cancelled']
+    return statuses[Math.floor(Math.random() * statuses.length)]
+  }
+  if (lowerFieldName.includes('flag') || lowerFieldName.includes('enabled') || lowerFieldName.includes('disabled')) {
+    return Math.random() > 0.5
+  }
+  
+  // 根据类型生成
+  switch (type) {
+    case 'string':
+      const strings = ['示例文本', '测试数据', '随机内容', 'Mock值', '示例值']
+      return strings[Math.floor(Math.random() * strings.length)] + Math.floor(Math.random() * 100)
+    case 'number':
+      return Math.floor(Math.random() * 1000)
+    case 'boolean':
+      return Math.random() > 0.5
+    default:
+      return 'mock_value'
+  }
+}
+
+// XML转对象
+const parseXmlToObject = (xmlString) => {
+  try {
+    const parser = new DOMParser()
+    const xmlDoc = parser.parseFromString(xmlString, 'text/xml')
+    
+    const parseError = xmlDoc.querySelector('parsererror')
+    if (parseError) {
+      throw new Error('XML解析错误: ' + parseError.textContent)
+    }
+    
+    const parseNode = (node) => {
+      const elementChildren = []
+      let textContent = ''
+      
+      for (let i = 0; i < node.childNodes.length; i++) {
+        const child = node.childNodes[i]
+        if (child.nodeType === 3) {
+          const text = child.textContent?.trim()
+          if (text) {
+            textContent += (textContent ? ' ' : '') + text
+          }
+        } else if (child.nodeType === 1) {
+          elementChildren.push(child)
+        }
+      }
+      
+      if (elementChildren.length > 0) {
+        const result = {}
+        if (node.attributes && node.attributes.length > 0) {
+          for (let i = 0; i < node.attributes.length; i++) {
+            const attr = node.attributes[i]
+            result['@' + attr.name] = attr.value
+          }
+        }
+        elementChildren.forEach(child => {
+          const childName = child.nodeName
+          const childValue = parseNode(child)
+          if (result[childName]) {
+            if (!Array.isArray(result[childName])) {
+              result[childName] = [result[childName]]
+            }
+            result[childName].push(childValue)
+          } else {
+            result[childName] = childValue
+          }
+        })
+        if (textContent) {
+          result['#text'] = textContent
+        }
+        return result
+      } else if (textContent) {
+        return textContent
+      } else {
+        return {}
+      }
+    }
+    
+    const rootElement = xmlDoc.documentElement
+    const rootValue = parseNode(rootElement)
+    
+    if (typeof rootValue === 'object' && rootValue !== null) {
+      return rootValue
+    }
+    
+    const rootName = rootElement.nodeName
+    const rootObj = {}
+    rootObj[rootName] = rootValue
+    return rootObj
+  } catch (e) {
+    throw new Error('XML解析失败: ' + e.message)
+  }
+}
+
+// 对象转 XML
+const objectToXml = (obj, rootName = 'root') => {
+  const convert = (data, tagName) => {
+    if (Array.isArray(data)) {
+      return data.map(item => convert(item, tagName)).join('\n')
+    } else if (data && typeof data === 'object') {
+      const keys = Object.keys(data)
+      if (keys.length === 0) {
+        return `<${tagName}></${tagName}>`
+      }
+      let xml = `<${tagName}>`
+      keys.forEach(key => {
+        if (key.startsWith('@') || key === '#text') {
+          return // 跳过属性和文本节点
+        }
+        const value = data[key]
+        if (Array.isArray(value)) {
+          xml += '\n' + value.map(item => convert(item, key)).join('\n')
+        } else if (value && typeof value === 'object') {
+          xml += '\n' + convert(value, key)
+        } else {
+          xml += `\n  <${key}>${escapeXml(String(value))}</${key}>`
+        }
+      })
+      xml += `\n</${tagName}>`
+      return xml
+    } else {
+      return `<${tagName}>${escapeXml(String(data))}</${tagName}>`
+    }
+  }
+  
+  const rootKey = Object.keys(obj)[0] || rootName
+  const xmlContent = convert(obj[rootKey] || obj, rootKey)
+  return `<?xml version="1.0" encoding="UTF-8"?>\n${xmlContent}`
+}
+
+// XML 转义
+const escapeXml = (str) => {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
 }
 </script>
 

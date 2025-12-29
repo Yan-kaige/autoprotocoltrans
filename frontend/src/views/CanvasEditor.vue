@@ -26,6 +26,16 @@
             </el-select>
             <el-button 
               size="small" 
+              @click="generateRandomData"
+              :disabled="!sourceTreeData || sourceTreeData.length === 0"
+              title="根据当前结构生成随机测试数据"
+              type="success"
+            >
+              <el-icon><Plus /></el-icon>
+              生成随机数据
+            </el-button>
+            <el-button 
+              size="small" 
               @click="formatSourceData"
               :disabled="!sourceJson.trim()"
               title="格式化"
@@ -2107,6 +2117,194 @@ const onSourceProtocolChange = () => {
   // 切换协议类型时，清空错误信息并重新解析
   sourceParseError.value = ''
   parseSourceTree()
+}
+
+// 生成随机数据
+const generateRandomData = () => {
+  if (!sourceTreeData.value || sourceTreeData.value.length === 0) {
+    ElMessage.warning('请先输入或解析源数据结构')
+    return
+  }
+  
+  try {
+    // 根据树结构生成 Mock 数据
+    const mockData = generateMockDataFromTree(sourceTreeData.value[0])
+    
+    if (sourceProtocol.value === 'JSON') {
+      const jsonString = JSON.stringify(mockData, null, 2)
+      sourceJson.value = jsonString
+      
+      // 如果使用 Monaco Editor，更新编辑器内容
+      if (sourceJsonEditor) {
+        sourceJsonEditor.setValue(jsonString)
+        // 格式化代码
+        sourceJsonEditor.getAction('editor.action.formatDocument').run()
+      }
+    } else {
+      // XML 格式 - 使用第一个 key 作为根元素名，如果没有则使用 'root'
+      const rootKey = Object.keys(mockData)[0] || 'root'
+      sourceJson.value = objectToXml(mockData[rootKey] || mockData, rootKey)
+    }
+    
+    // 重新解析树结构
+    parseSourceTree()
+    ElMessage.success('随机数据生成成功')
+  } catch (e) {
+    ElMessage.error('生成随机数据失败: ' + e.message)
+    console.error('生成随机数据错误:', e)
+  }
+}
+
+// 根据树结构生成 Mock 数据
+const generateMockDataFromTree = (treeNode) => {
+  if (!treeNode || !treeNode.children || treeNode.children.length === 0) {
+    return generateRandomValueByType('object')
+  }
+  
+  const result = {}
+  
+  const processNode = (node) => {
+    if (!node.children || node.children.length === 0) {
+      // 叶子节点，根据字段名和类型生成值
+      return generateRandomValueByType(node.type, node.label)
+    } else {
+      // 有子节点，判断是对象还是数组
+      // 检查第一个子节点的路径是否包含 [index] 格式
+      const firstChild = node.children[0]
+      const isArray = firstChild && firstChild.path && firstChild.path.includes('[') && firstChild.path.includes(']')
+      
+      if (isArray) {
+        // 数组类型
+        const arrayLength = Math.floor(Math.random() * 3) + 1 // 1-3 个元素
+        const array = []
+        
+        // 收集数组元素的结构（从 [0] 索引的子节点推断）
+        const elementKeys = new Map()
+        node.children.forEach(child => {
+          const match = child.path.match(/\[0\](?:\.(.+))?$/)
+          if (match) {
+            const key = match[1] || child.label
+            elementKeys.set(key, child)
+          }
+        })
+        
+        // 生成数组元素
+        for (let i = 0; i < arrayLength; i++) {
+          if (elementKeys.size > 0) {
+            // 对象数组
+            const elementObj = {}
+            elementKeys.forEach((child, key) => {
+              if (child.children && child.children.length > 0) {
+                elementObj[key] = processNode(child)
+              } else {
+                elementObj[key] = generateRandomValueByType(child.type, child.label)
+              }
+            })
+            array.push(elementObj)
+          } else {
+            // 简单数组（可能是基本类型数组）
+            const firstChildType = firstChild.type
+            array.push(generateRandomValueByType(firstChildType, firstChild.label))
+          }
+        }
+        
+        return array.length > 0 ? array : [generateRandomValueByType('object')]
+      } else {
+        // 对象类型
+        const obj = {}
+        node.children.forEach(child => {
+          const key = child.label
+          if (child.children && child.children.length > 0) {
+            obj[key] = processNode(child)
+          } else {
+            obj[key] = generateRandomValueByType(child.type, key)
+          }
+        })
+        return obj
+      }
+    }
+  }
+  
+  // 处理根节点的子节点
+  if (treeNode.children) {
+    treeNode.children.forEach(child => {
+      const key = child.label
+      if (child.children && child.children.length > 0) {
+        result[key] = processNode(child)
+      } else {
+        result[key] = generateRandomValueByType(child.type, key)
+      }
+    })
+  }
+  
+  return result
+}
+
+// 根据类型和字段名生成随机值
+const generateRandomValueByType = (type, fieldName = '') => {
+  const lowerFieldName = fieldName.toLowerCase()
+  
+  // 根据字段名推断类型（更智能的生成）
+  if (lowerFieldName.includes('id') || lowerFieldName.includes('code')) {
+    return Math.floor(Math.random() * 1000000).toString()
+  }
+  if (lowerFieldName.includes('name') || lowerFieldName.includes('title')) {
+    const names = ['张三', '李四', '王五', '赵六', '钱七', '孙八', '周九', '吴十']
+    return names[Math.floor(Math.random() * names.length)]
+  }
+  if (lowerFieldName.includes('email')) {
+    const domains = ['example.com', 'test.com', 'demo.com']
+    return `user${Math.floor(Math.random() * 1000)}@${domains[Math.floor(Math.random() * domains.length)]}`
+  }
+  if (lowerFieldName.includes('phone') || lowerFieldName.includes('mobile')) {
+    return `1${Math.floor(Math.random() * 9) + 1}${String(Math.floor(Math.random() * 100000000)).padStart(9, '0')}`
+  }
+  if (lowerFieldName.includes('address') || lowerFieldName.includes('addr')) {
+    const addresses = ['北京市朝阳区', '上海市浦东新区', '广州市天河区', '深圳市南山区', '杭州市西湖区']
+    return addresses[Math.floor(Math.random() * addresses.length)]
+  }
+  if (lowerFieldName.includes('date') || lowerFieldName.includes('time')) {
+    const now = new Date()
+    const daysAgo = Math.floor(Math.random() * 365)
+    const date = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000)
+    return date.toISOString().split('T')[0]
+  }
+  if (lowerFieldName.includes('age')) {
+    return Math.floor(Math.random() * 50) + 18
+  }
+  if (lowerFieldName.includes('price') || lowerFieldName.includes('amount') || lowerFieldName.includes('money')) {
+    return parseFloat((Math.random() * 10000).toFixed(2))
+  }
+  if (lowerFieldName.includes('status') || lowerFieldName.includes('state')) {
+    const statuses = ['active', 'inactive', 'pending', 'completed', 'cancelled']
+    return statuses[Math.floor(Math.random() * statuses.length)]
+  }
+  if (lowerFieldName.includes('flag') || lowerFieldName.includes('enabled') || lowerFieldName.includes('disabled')) {
+    return Math.random() > 0.5
+  }
+  
+  // 根据类型生成
+  switch (type) {
+    case 'string':
+      const strings = ['示例文本', '测试数据', '随机内容', 'Mock值', '示例值']
+      return strings[Math.floor(Math.random() * strings.length)] + Math.floor(Math.random() * 100)
+    case 'number':
+    case 'int':
+    case 'integer':
+      return Math.floor(Math.random() * 1000)
+    case 'float':
+    case 'double':
+      return parseFloat((Math.random() * 1000).toFixed(2))
+    case 'boolean':
+    case 'bool':
+      return Math.random() > 0.5
+    case 'array':
+      return []
+    case 'object':
+      return {}
+    default:
+      return 'mock_value'
+  }
 }
 
 // 格式化源数据
