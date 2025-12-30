@@ -387,6 +387,7 @@
             <el-option label="Groovy脚本" value="GROOVY" />
             <el-option label="字典映射" value="DICTIONARY" />
             <el-option label="固定值" value="FIXED" />
+            <el-option label="自定义后端方法" value="CUSTOM_METHOD" />
           </el-select>
         </el-form-item>
         
@@ -500,6 +501,37 @@
         <!-- 固定值配置 -->
         <el-form-item v-if="currentEdgeConfig.transformType === 'FIXED'" label="固定值">
           <el-input v-model="currentEdgeConfig.transformConfig.fixedValue" placeholder="请输入固定值" />
+        </el-form-item>
+        
+        <!-- 自定义后端方法配置 -->
+        <el-form-item v-if="currentEdgeConfig.transformType === 'CUSTOM_METHOD'" label="类名">
+          <el-input 
+            v-model="currentEdgeConfig.transformConfig.className" 
+            placeholder="请输入完整的类名，如：com.kai.util.StringUtil"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item v-if="currentEdgeConfig.transformType === 'CUSTOM_METHOD'" label="方法名">
+          <el-input 
+            v-model="currentEdgeConfig.transformConfig.methodName" 
+            placeholder="请输入方法名，如：toUpperCase"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item v-if="currentEdgeConfig.transformType === 'CUSTOM_METHOD'">
+          <div style="font-size: 12px; color: #999;">
+            <div><strong>说明：</strong></div>
+            <div>• 类名：完整的类路径，如 <code>com.kai.util.StringUtil</code></div>
+            <div>• 方法名：要调用的方法名称</div>
+            <div>• 方法要求：</div>
+            <div style="margin-left: 20px;">- 方法必须是 public static</div>
+            <div style="margin-left: 20px;">- 方法接受一个 Object 参数（源字段值）</div>
+            <div style="margin-left: 20px;">- 方法返回 Object（转换后的值）</div>
+            <div style="margin-left: 20px;">- 或者方法可以是实例方法（无参数或接受一个参数）</div>
+            <div style="margin-top: 5px;"><strong>示例：</strong></div>
+            <div>• 类名: <code>com.kai.util.StringUtil</code></div>
+            <div>• 方法名: <code>toUpperCase</code></div>
+          </div>
         </el-form-item>
         
         <!-- 多对一映射的额外源字段配置 -->
