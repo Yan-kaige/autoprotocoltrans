@@ -653,7 +653,14 @@
     </el-dialog>
 
     <!-- 保存/修改配置对话框 -->
-    <el-dialog v-model="saveConfigVisible" :title="currentConfigId ? '修改配置' : '保存配置'" width="500px">
+    <el-dialog 
+      v-model="saveConfigVisible" 
+      :title="currentConfigId ? '修改配置' : '保存配置'" 
+      width="500px"
+      :append-to-body="true"
+      :trap-focus="false"
+      :destroy-on-close="false"
+    >
       <el-form :model="saveConfigForm" label-width="100px">
         <el-form-item label="配置名称" required>
           <el-input v-model="saveConfigForm.name" placeholder="请输入配置名称" />

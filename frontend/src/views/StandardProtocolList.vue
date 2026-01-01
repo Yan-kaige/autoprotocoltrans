@@ -4,7 +4,10 @@
       <template #header>
         <div class="card-header">
           <span>标准协议管理</span>
-          <el-button type="primary" @click="openProtocolDialog">新建协议</el-button>
+          <div>
+            <el-button type="success" @click="openImportDialog">从文档导入</el-button>
+            <el-button type="primary" @click="openProtocolDialog">新建协议</el-button>
+          </div>
         </div>
       </template>
 
@@ -42,6 +45,49 @@
         </el-table-column>
       </el-table>
     </el-card>
+
+    <!-- 文档导入对话框 -->
+    <el-dialog 
+      v-model="importDialogVisible" 
+      title="从文档导入协议" 
+      width="800px"
+      @close="resetImportDialog"
+    >
+      <el-tabs v-model="importTab">
+        <el-tab-pane label="上传文件" name="file">
+          <el-upload
+            ref="uploadRef"
+            :auto-upload="false"
+            :on-change="handleFileChange"
+            :limit="1"
+            accept=".txt,.md,.json,.xml,.doc,.docx"
+            drag
+          >
+            <el-icon class="el-icon--upload"><upload-filled /></el-icon>
+            <div class="el-upload__text">
+              将文件拖到此处，或<em>点击上传</em>
+            </div>
+            <template #tip>
+              <div class="el-upload__tip">
+                支持 txt、md、json、xml、doc、docx 格式文件
+              </div>
+            </template>
+          </el-upload>
+        </el-tab-pane>
+        <el-tab-pane label="粘贴文本" name="text">
+          <el-input
+            v-model="importText"
+            type="textarea"
+            :rows="15"
+            placeholder="请粘贴包含报文结构的文档内容..."
+          />
+        </el-tab-pane>
+      </el-tabs>
+      <template #footer>
+        <el-button @click="importDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleImport" :loading="importing">开始导入</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 协议编辑对话框 -->
     <el-dialog 
@@ -94,6 +140,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { UploadFilled } from '@element-plus/icons-vue'
 import { standardProtocolApi } from '../api'
 
 const protocolList = ref([])
@@ -102,6 +149,14 @@ const dialogVisible = ref(false)
 const currentProtocolId = ref(null)
 const saving = ref(false)
 const formRef = ref(null)
+
+// 文档导入相关
+const importDialogVisible = ref(false)
+const importTab = ref('file')
+const importText = ref('')
+const importing = ref(false)
+const uploadRef = ref(null)
+const importFile = ref(null)
 
 const protocolForm = ref({
   name: '',
@@ -275,6 +330,88 @@ const formatDateTime = (dateTime) => {
     minute: '2-digit',
     second: '2-digit'
   })
+}
+
+// 打开导入对话框
+const openImportDialog = () => {
+  importDialogVisible.value = true
+  resetImportDialog()
+}
+
+// 重置导入对话框
+const resetImportDialog = () => {
+  importText.value = ''
+  importFile.value = null
+  importTab.value = 'file'
+  if (uploadRef.value) {
+    uploadRef.value.clearFiles()
+  }
+}
+
+// 处理文件选择
+const handleFileChange = (file) => {
+  importFile.value = file.raw
+}
+
+// 执行导入
+const handleImport = async () => {
+  if (importTab.value === 'file' && !importFile.value) {
+    ElMessage.warning('请选择要上传的文件')
+    return
+  }
+  
+  if (importTab.value === 'text' && (!importText.value || !importText.value.trim())) {
+    ElMessage.warning('请输入文档内容')
+    return
+  }
+  
+  importing.value = true
+  try {
+    const response = await standardProtocolApi.importFromDocument(
+      importTab.value === 'text' ? importText.value : null,
+      importTab.value === 'file' ? importFile.value : null
+    )
+    
+    if (response.data.success) {
+      const count = response.data.count || 1
+      const protocols = Array.isArray(response.data.data) ? response.data.data : [response.data.data]
+      
+      ElMessage.success(`成功导入 ${count} 条协议！`)
+      importDialogVisible.value = false
+      loadProtocols()
+      
+      // 显示导入结果
+      if (protocols.length === 1) {
+        // 单个协议，显示详细信息
+        const protocol = protocols[0]
+        ElMessageBox.alert(
+          `协议名称：${protocol.name}\n协议编码：${protocol.code}\n协议类型：${protocol.protocolType}`,
+          '导入成功',
+          {
+            confirmButtonText: '确定',
+            type: 'success'
+          }
+        )
+      } else {
+        // 多个协议，显示摘要
+        const protocolNames = protocols.map(p => p.name).join('、')
+        ElMessageBox.alert(
+          `成功导入 ${count} 条协议：\n${protocolNames}`,
+          '导入成功',
+          {
+            confirmButtonText: '确定',
+            type: 'success'
+          }
+        )
+      }
+    } else {
+      ElMessage.error('导入失败: ' + response.data.errorMessage)
+    }
+  } catch (error) {
+    ElMessage.error('导入失败: ' + (error.response?.data?.errorMessage || error.message))
+  } finally {
+    importing.value = false
+  }
 }
 </script>
 

@@ -19,3 +19,4 @@ CREATE TABLE IF NOT EXISTS `standard_protocol` (
     KEY `idx_enabled` (`enabled`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='标准协议表';
 
+

@@ -39,6 +39,29 @@ mybatis-plus:
       id-type: auto
       table-underline: true
 
+# LLM配置（用于文档导入功能）
+# 使用 DeepSeek API
+# 如果未配置，将使用默认的简单解析逻辑
+llm:
+  api:
+    # DeepSeek API密钥（从 https://platform.deepseek.com/ 获取）
+    key:
+    # 使用的模型名称（默认：deepseek-chat）
+    # 可选模型：deepseek-chat, deepseek-coder 等
+    model: deepseek-chat
+    # API地址（默认使用 DeepSeek 官方地址）
+    url: https://api.deepseek.com/v1/chat/completions
+    # 代理配置（可选）
+    proxy:
+      # 是否启用代理
+      enabled: false
+      # 代理主机地址
+      host: localhost
+      # 代理端口
+      port: 10809
+      # 代理类型（http 或 https，默认 http）
+      type: http
+
 
 
 

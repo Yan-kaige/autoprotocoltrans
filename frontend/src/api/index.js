@@ -165,7 +165,25 @@ export const standardProtocolApi = {
   deleteProtocol: (id) => api.delete(`/standard-protocol/${id}`),
   
   // 切换启用状态
-  toggleEnabled: (id) => api.post(`/standard-protocol/${id}/toggle-enabled`)
+  toggleEnabled: (id) => api.post(`/standard-protocol/${id}/toggle-enabled`),
+  
+  // 从文档导入协议
+  importFromDocument: (documentContent, file) => {
+    const formData = new FormData()
+    if (file) {
+      formData.append('file', file)
+    }
+    if (documentContent) {
+      formData.append('documentContent', documentContent)
+    }
+    return api.post('/standard-protocol/import-from-document', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      },
+      // 文档导入需要调用 LLM API，可能需要较长时间，设置 60 秒超时
+      timeout: 60000
+    })
+  }
 }
 
 export default api
