@@ -32,5 +32,11 @@ public enum TransformType {
     /**
      * 忽略此字段
      */
-    IGNORE
+    IGNORE,
+    
+    /**
+     * 自定义后端方法
+     * 通过反射调用指定的类和方法进行转换
+     */
+    CUSTOM_METHOD
 }

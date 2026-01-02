@@ -18,4 +18,3 @@ public interface MappingConfigMapper extends BaseMapper<MappingConfigEntity> {
 
 
 
-
