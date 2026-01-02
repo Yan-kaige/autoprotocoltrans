@@ -7,11 +7,11 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 /**
- * 标准协议实体类
+ * 交易类型实体类
  */
-@TableName("standard_protocol")
+@TableName("transaction_type")
 @Data
-public class StandardProtocol {
+public class TransactionType {
     
     /**
      * 主键ID
@@ -20,34 +20,19 @@ public class StandardProtocol {
     private Long id;
     
     /**
-     * 协议名称（唯一）
+     * 银行ID
      */
-    private String name;
+    private Long bankId;
     
     /**
-     * 协议编码（唯一）
+     * 交易类型名称（如：今日余额查询、历史余额查询等）
      */
-    private String code;
+    private String transactionName;
     
     /**
-     * 协议描述
+     * 交易类型描述
      */
     private String description;
-    
-    /**
-     * 协议类型（JSON/XML）
-     */
-    private String protocolType;
-    
-    /**
-     * 数据格式模板（JSON或XML字符串）
-     */
-    private String dataFormat;
-    
-    /**
-     * 协议分类（如：用户信息、订单信息、支付信息等）
-     */
-    private String category;
     
     /**
      * 是否启用（1:启用，0:禁用）
@@ -64,7 +49,4 @@ public class StandardProtocol {
      */
     private LocalDateTime updateTime;
 }
-
-
-
 

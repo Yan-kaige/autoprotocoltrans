@@ -178,7 +178,7 @@
               <el-icon><ZoomOut /></el-icon>
               缩小
             </el-button>
-            <el-button-group v-if="route.query.bankCategory && route.query.requestType" style="margin-left: 10px;">
+            <el-button-group v-if="route.query.transactionTypeId" style="margin-left: 10px;">
               <el-button 
                 :type="currentConfigType === 'REQUEST' ? 'primary' : 'default'"
                 size="small"
@@ -686,40 +686,78 @@
         </el-form-item>
         <el-form-item label="银行类别" required>
           <el-select 
-            v-model="saveConfigForm.bankCategory" 
+            v-model="saveConfigForm.bankId" 
             placeholder="请选择银行"
             filterable
             style="width: 100%"
-            @change="onConfigTypeOrBankChange"
+            @change="onBankChange"
+            :disabled="!!saveConfigForm.transactionTypeId"
           >
             <el-option
               v-for="bank in enabledBanks"
               :key="bank.id"
               :label="bank.name"
-              :value="bank.name"
+              :value="bank.id"
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="交易名称" required>
-          <el-input v-model="saveConfigForm.transactionName" placeholder="请输入交易名称" />
-        </el-form-item>
-        <el-form-item label="请求类型" required>
+        <el-form-item label="交易类型" required>
           <el-select 
-            v-model="saveConfigForm.requestType" 
-            placeholder="请选择或输入请求类型"
+            v-model="saveConfigForm.transactionName" 
+            placeholder="请选择交易类型"
             filterable
-            allow-create
-            default-first-option
             style="width: 100%"
-            @change="onRequestTypeChange"
+            @change="onTransactionTypeChange"
           >
             <el-option
-              v-for="type in transactionTypes"
+              v-for="type in availableTransactionTypes"
               :key="type.value"
               :label="type.label"
               :value="type.value"
-            />
+            >
+              {{ type.label }}
+            </el-option>
+            <el-option v-if="availableTransactionTypes.length === 0" disabled>
+              加载中...
+            </el-option>
           </el-select>
+        </el-form-item>
+        <el-form-item label="交易名称" v-if="saveConfigForm.transactionName">
+          <el-input v-model="saveConfigForm.transactionName" disabled />
+        </el-form-item>
+        <el-form-item label="版本" required>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <el-select 
+              v-model="saveConfigForm.version" 
+              placeholder="请选择版本"
+              filterable
+              style="flex: 1"
+              @change="onVersionChange"
+              :disabled="saveConfigForm.createNewVersion"
+            >
+              <el-option
+                v-for="version in availableVersions"
+                :key="version"
+                :label="version"
+                :value="version"
+              />
+            </el-select>
+            <el-checkbox 
+              v-model="saveConfigForm.createNewVersion"
+              @change="onCreateNewVersionChange"
+              v-if="currentConfigId"
+            >
+              新增版本
+            </el-checkbox>
+          </div>
+          <div style="font-size: 12px; color: #909399; margin-top: 5px;">
+            <div v-if="saveConfigForm.createNewVersion">
+              提示：新增版本后，该交易类型的请求和响应配置都将使用新版本
+            </div>
+            <div v-else>
+              提示：请求和响应必须使用同一版本
+            </div>
+          </div>
         </el-form-item>
         <el-form-item label="配置名称" required>
           <el-input v-model="saveConfigForm.name" placeholder="请输入配置名称" />
@@ -781,7 +819,7 @@ import { Selection } from '@antv/x6-plugin-selection'
 import { MiniMap } from '@antv/x6-plugin-minimap'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Document, Delete, Plus, ArrowLeft, ArrowRight, ArrowDown, FullScreen, ZoomIn, ZoomOut, Search, Check, Edit, Setting, Close } from '@element-plus/icons-vue'
-import { transformV2Api, configApi, dictionaryApi, functionApi, standardProtocolApi, bankApi } from '../api'
+import { transformV2Api, configApi, configV2Api, transactionTypeApi, dictionaryApi, functionApi, standardProtocolApi, bankApi } from '../api'
 import { useRoute, useRouter } from 'vue-router'
 import loader from '@monaco-editor/loader'
 
@@ -1140,13 +1178,17 @@ const saving = ref(false)
 const saveConfigForm = ref({
   name: '',
   description: '',
-  bankCategory: '',
-  transactionName: '',
-  requestType: '',
+  bankId: null, // 银行ID
+  transactionTypeId: null, // 交易类型ID
+  transactionName: '', // 交易类型名称（用于显示）
+  version: 'v1', // 配置版本，默认v1
+  createNewVersion: false, // 是否创建新版本
   configType: 'REQUEST' // 配置类型：REQUEST（请求）或 RESPONSE（响应）
 })
-const transactionTypes = ref([]) // 标准交易类型列表
+const transactionTypes = ref([]) // 标准交易类型列表（用于参考）
 const enabledBanks = ref([]) // 启用的银行列表
+const availableTransactionTypes = ref([]) // 当前银行可用的交易类型列表
+const availableVersions = ref(['v1']) // 可用版本列表
 
 // 路由相关
 const route = useRoute()
@@ -1240,26 +1282,34 @@ onMounted(() => {
     // 加载标准协议列表
     loadSourceProtocolList()
     loadTargetProtocolList()
-    // 加载标准交易类型列表
+    // 加载标准交易类型列表（用于参考）
     loadTransactionTypes()
+    // 加载标准交易类型列表（用于下拉框选择）
+    loadStandardTransactionTypes()
     // 加载银行列表
     loadEnabledBanks()
     // 检查URL参数，加载配置或初始化表单
     const configId = route.query.configId
-    const bankCategory = route.query.bankCategory
-    const requestType = route.query.requestType
+    const bankId = route.query.bankId ? Number(route.query.bankId) : null
+    const transactionTypeId = route.query.transactionTypeId ? Number(route.query.transactionTypeId) : null
     const configType = route.query.configType
+    const version = route.query.version
+    
+    // 如果有交易类型ID，加载版本列表
+    if (transactionTypeId) {
+      loadVersions(transactionTypeId)
+    }
     
     if (configId) {
       // 编辑模式：根据ID加载配置
       currentConfigId.value = configId
       loadConfigToCanvas(Number(configId))
-    } else if (bankCategory && requestType && configType) {
-      // 根据银行类别、交易类型和配置类型加载配置
-      loadConfigByParams(bankCategory, requestType, configType)
-    } else if (bankCategory && requestType) {
-      // 只提供了银行类别和交易类型，初始化表单
-      initFormFromParams(bankCategory, requestType, configType)
+    } else if (transactionTypeId && configType) {
+      // 根据交易类型ID和配置类型加载配置
+      loadConfigByParams(transactionTypeId, configType, version)
+    } else if (transactionTypeId) {
+      // 只提供了交易类型ID，初始化表单
+      initFormFromParams(bankId, transactionTypeId, configType, version)
     }
     
     // 设置 ResizeObserver 监听画布容器大小变化
@@ -1585,7 +1635,7 @@ const initSourceJsonEditor = async () => {
               const parsed = JSON.parse(content)
               const formatted = JSON.stringify(parsed, null, 2)
               sourceJsonEditor.setValue(formatted)
-              ElMessage.success('已自动格式化 JSON')
+              // ElMessage.success('已自动格式化 JSON')
             } catch (e) {
               // 格式化失败时不提示
             }
@@ -1821,7 +1871,7 @@ const handlePreviewFieldClick = (position) => {
     graph.centerCell(firstNode)
   }
   
-  ElMessage.success(`已高亮显示字段 "${fieldPath}" 的数据血缘关系`)
+  // ElMessage.success(`已高亮显示字段 "${fieldPath}" 的数据血缘关系`)
 }
 
 /**
@@ -2282,7 +2332,7 @@ const insertFunction = (func) => {
     }
     
     groovyEditor.focus()
-    ElMessage.success(`已插入函数: ${func.name}`)
+    // ElMessage.success(`已插入函数: ${func.name}`)
   } catch (e) {
     console.error('插入函数失败:', e)
     ElMessage.error('插入函数失败: ' + e.message)
@@ -3225,11 +3275,11 @@ const formatSourceData = () => {
         sourceJsonEditor.getAction('editor.action.formatDocument').run()
       }
       
-      ElMessage.success('JSON 格式化成功')
+      // ElMessage.success('JSON 格式化成功')
     } else {
       // XML 格式化
       sourceJson.value = formatXml(sourceJson.value)
-      ElMessage.success('XML 格式化成功')
+      // ElMessage.success('XML 格式化成功')
     }
     // 格式化后重新解析
     parseSourceTree()
@@ -3325,7 +3375,7 @@ const handlePaste = (e) => {
       // 尝试解析并格式化 JSON
       const parsed = JSON.parse(pastedText)
       sourceJson.value = JSON.stringify(parsed, null, 2)
-      ElMessage.success('已自动格式化 JSON')
+      // ElMessage.success('已自动格式化 JSON')
       // 格式化后重新解析
       parseSourceTree()
     } catch (e) {
@@ -5371,58 +5421,177 @@ const loadEnabledBanks = async () => {
   }
 }
 
-// 请求类型改变时，自动填充交易名称和配置名称
-const onRequestTypeChange = (value) => {
-  if (!value || !value.trim()) {
+// 加载标准交易类型列表（预置的，不需要和银行绑定）
+const loadStandardTransactionTypes = async () => {
+  try {
+    const res = await configV2Api.getTransactionTypes()
+    if (res.data && res.data.success && res.data.data) {
+      availableTransactionTypes.value = res.data.data || []
+      console.log('标准交易类型列表已加载:', availableTransactionTypes.value.length, '条')
+    } else {
+      availableTransactionTypes.value = []
+      console.warn('标准交易类型列表加载失败:', res.data)
+    }
+  } catch (e) {
+    console.error('加载标准交易类型列表失败:', e)
+    console.error('错误详情:', e.response?.data || e.message)
+    availableTransactionTypes.value = []
+  }
+}
+
+// 银行改变时的处理
+const onBankChange = async () => {
+  if (saveConfigForm.value.bankId) {
+    // 清空交易类型选择
+    saveConfigForm.value.transactionTypeId = null
+    saveConfigForm.value.transactionName = ''
+  }
+}
+
+// 交易类型改变时的处理
+const onTransactionTypeChange = async () => {
+  if (saveConfigForm.value.transactionName) {
+    // 根据选择的交易类型名称，查找对应的显示名称
+    const selectedType = availableTransactionTypes.value.find(t => t.value === saveConfigForm.value.transactionName)
+    if (selectedType) {
+      // 自动生成配置名称
+      updateConfigName()
+      
+      // 如果有银行ID，尝试查找或创建交易类型记录
+      if (saveConfigForm.value.bankId) {
+        await findOrCreateTransactionType()
+      }
+    }
+  }
+}
+
+// 根据银行ID和交易类型名称查找或创建交易类型记录
+const findOrCreateTransactionType = async () => {
+  if (!saveConfigForm.value.bankId || !saveConfigForm.value.transactionName) {
     return
   }
   
-  const requestType = value.trim()
-  
-  // 自动填充交易名称（如果为空）
-  if (!saveConfigForm.value.transactionName || saveConfigForm.value.transactionName.trim() === '') {
-    saveConfigForm.value.transactionName = requestType
+  try {
+    // 获取标准交易类型的显示名称
+    const selectedType = availableTransactionTypes.value.find(t => t.value === saveConfigForm.value.transactionName)
+    if (!selectedType) {
+      console.error('未找到对应的标准交易类型:', saveConfigForm.value.transactionName)
+      return
+    }
+    
+    const displayName = selectedType.label // 如 "今日余额查询"
+    
+    // 先尝试查找该银行的该交易类型（按显示名称匹配）
+    const res = await transactionTypeApi.getByBankId(saveConfigForm.value.bankId)
+    if (res.data.success && res.data.data) {
+      const transactionTypes = res.data.data || []
+      const found = transactionTypes.find(t => t.transactionName === displayName)
+      if (found) {
+        saveConfigForm.value.transactionTypeId = found.id
+        // 加载版本列表
+        loadVersions(found.id)
+        return
+      }
+    }
+    
+    // 如果没找到，创建新的交易类型记录
+    const createRes = await transactionTypeApi.saveTransactionType(
+      null, // 新建
+      saveConfigForm.value.bankId,
+      displayName, // 使用显示名称
+      '', // 描述为空
+      true // 默认启用
+    )
+    if (createRes.data.success && createRes.data.data) {
+      saveConfigForm.value.transactionTypeId = createRes.data.data.id
+      // 加载版本列表
+      loadVersions(createRes.data.data.id)
+    }
+  } catch (e) {
+    console.error('查找或创建交易类型失败:', e)
   }
-  
-  // 自动生成或更新配置名称
-  updateConfigName()
 }
 
-// 配置类型或银行类别改变时，更新配置名称（如果配置名称是自动生成的格式）
-const onConfigTypeOrBankChange = () => {
-  // 如果已经有请求类型，更新配置名称
-  if (saveConfigForm.value.requestType && saveConfigForm.value.requestType.trim()) {
-    updateConfigName()
+// 加载版本列表
+const loadVersions = async (transactionTypeId) => {
+  if (!transactionTypeId) {
+    availableVersions.value = ['v1']
+    return
+  }
+  
+  try {
+    const res = await configV2Api.getVersions(transactionTypeId)
+    if (res.data.success && res.data.data) {
+      const versions = res.data.data || []
+      // 如果没有版本，默认添加v1
+      if (versions.length === 0) {
+        availableVersions.value = ['v1']
+      } else {
+        // 确保v1在列表中，并按版本号排序
+        const versionSet = new Set(versions)
+        versionSet.add('v1')
+        availableVersions.value = Array.from(versionSet).sort((a, b) => {
+          const numA = parseInt(a.replace('v', '')) || 0
+          const numB = parseInt(b.replace('v', '')) || 0
+          return numB - numA // 降序，最新版本在前
+        })
+      }
+    } else {
+      availableVersions.value = ['v1']
+    }
+  } catch (e) {
+    console.error('加载版本列表失败:', e)
+    availableVersions.value = ['v1']
   }
 }
 
-// 更新配置名称（自动生成格式：银行类别-请求类型-配置类型）
+// 版本改变时的处理
+const onVersionChange = () => {
+  // 确保请求和响应使用同一版本
+  // 这里不需要额外处理，因为版本是共享的
+}
+
+// 创建新版本选项改变时的处理
+const onCreateNewVersionChange = (checked) => {
+  if (checked) {
+    // 如果选择了创建新版本，禁用版本选择框
+    // 版本将在后端自动生成
+  }
+}
+
+// 更新配置名称（自动生成格式：交易类型-配置类型）
 const updateConfigName = () => {
-  const requestType = saveConfigForm.value.requestType?.trim() || ''
-  if (!requestType) {
+  const transactionNameValue = saveConfigForm.value.transactionName?.trim() || ''
+  if (!transactionNameValue) {
     return
   }
   
-  const bankCategory = saveConfigForm.value.bankCategory || ''
+  // 从标准交易类型列表中查找显示名称
+  const selectedType = availableTransactionTypes.value.find(t => t.value === transactionNameValue)
+  const displayName = selectedType ? selectedType.label : transactionNameValue
+  
   const configType = saveConfigForm.value.configType === 'REQUEST' ? '请求' : '响应'
   
-  // 生成配置名称：银行类别-请求类型-配置类型
-  let configName = ''
-  if (bankCategory) {
-    configName = `${bankCategory}-${requestType}-${configType}`
-  } else {
-    configName = `${requestType}-${configType}`
-  }
+  // 生成配置名称：交易类型-配置类型
+  const configName = `${displayName}-${configType}`
   
-  // 如果配置名称为空，或者是之前自动生成的格式（包含请求类型），则更新
+  // 如果配置名称为空，或者是之前自动生成的格式，则更新
   const currentName = saveConfigForm.value.name?.trim() || ''
-  if (!currentName || currentName.includes(requestType)) {
+  if (!currentName || currentName.includes(displayName)) {
     saveConfigForm.value.name = configName
   }
 }
 
+// 配置类型改变时的处理
+const onConfigTypeOrBankChange = () => {
+  // 如果已经有交易类型，更新配置名称
+  if (saveConfigForm.value.transactionName && saveConfigForm.value.transactionName.trim()) {
+    updateConfigName()
+  }
+}
+
 // 打开保存配置对话框
-const openSaveConfigDialog = () => {
+const openSaveConfigDialog = async () => {
   const config = exportMappingConfig()
   if (!config.rules || config.rules.length === 0) {
     ElMessage.warning('请先配置映射规则')
@@ -5433,9 +5602,9 @@ const openSaveConfigDialog = () => {
   if (currentConfigId.value && currentConfigEntity.value) {
     saveConfigForm.value.name = currentConfigEntity.value.name || ''
     saveConfigForm.value.description = currentConfigEntity.value.description || ''
-    saveConfigForm.value.bankCategory = currentConfigEntity.value.bankCategory || ''
-    saveConfigForm.value.transactionName = currentConfigEntity.value.transactionName || ''
-    saveConfigForm.value.requestType = currentConfigEntity.value.requestType || ''
+    saveConfigForm.value.transactionTypeId = currentConfigEntity.value.transactionTypeId
+    saveConfigForm.value.version = currentConfigEntity.value.version || 'v1'
+    saveConfigForm.value.createNewVersion = false // 默认不创建新版本
     // 从配置内容中读取 configType
     try {
       const configContent = JSON.parse(currentConfigEntity.value.configContent || '{}')
@@ -5443,23 +5612,74 @@ const openSaveConfigDialog = () => {
     } catch (e) {
       saveConfigForm.value.configType = 'REQUEST'
     }
+    
+    // 加载交易类型信息
+    if (currentConfigEntity.value.transactionTypeId) {
+      try {
+        const typeRes = await transactionTypeApi.getById(currentConfigEntity.value.transactionTypeId)
+        if (typeRes.data.success && typeRes.data.data) {
+          const transactionType = typeRes.data.data
+          saveConfigForm.value.bankId = transactionType.bankId
+          saveConfigForm.value.transactionName = transactionType.transactionName
+          // 查找对应的标准交易类型值
+          const standardType = availableTransactionTypes.value.find(t => t.label === transactionType.transactionName)
+          if (standardType) {
+            saveConfigForm.value.transactionName = standardType.value
+          }
+        }
+      } catch (e) {
+        console.error('加载交易类型信息失败:', e)
+      }
+      
+      // 加载版本列表
+      loadVersions(currentConfigEntity.value.transactionTypeId)
+    }
   } else {
     // 新建模式，从URL参数或当前状态填充表单
-    const bankCategory = route.query.bankCategory
-    const requestType = route.query.requestType
+    const bankId = route.query.bankId ? Number(route.query.bankId) : null
+    const transactionTypeId = route.query.transactionTypeId ? Number(route.query.transactionTypeId) : null
     const configType = route.query.configType || currentConfigType.value || 'REQUEST'
+    const version = route.query.version
     
-    saveConfigForm.value.bankCategory = bankCategory || ''
-    saveConfigForm.value.requestType = requestType || ''
-    saveConfigForm.value.transactionName = requestType || ''
+    saveConfigForm.value.bankId = bankId
+    saveConfigForm.value.transactionTypeId = transactionTypeId
     saveConfigForm.value.configType = configType
+    saveConfigForm.value.version = version || 'v1'
+    saveConfigForm.value.createNewVersion = false // 新建模式不创建新版本
     saveConfigForm.value.name = ''
     saveConfigForm.value.description = ''
     
+    // 如果有交易类型ID，加载交易类型信息和版本列表
+    if (transactionTypeId) {
+      try {
+        const typeRes = await transactionTypeApi.getById(transactionTypeId)
+        if (typeRes.data.success && typeRes.data.data) {
+          const transactionType = typeRes.data.data
+          saveConfigForm.value.transactionTypeId = transactionTypeId
+          // 如果还没有设置银行ID，从交易类型中获取
+          if (!saveConfigForm.value.bankId && transactionType.bankId) {
+            saveConfigForm.value.bankId = transactionType.bankId
+          }
+          // 查找对应的标准交易类型值
+          const standardType = availableTransactionTypes.value.find(t => t.label === transactionType.transactionName)
+          if (standardType) {
+            saveConfigForm.value.transactionName = standardType.value
+          } else {
+            saveConfigForm.value.transactionName = transactionType.transactionName
+          }
+        }
+      } catch (e) {
+        console.error('加载交易类型信息失败:', e)
+      }
+      loadVersions(transactionTypeId)
+    }
+    
     // 自动生成配置名称
-    if (bankCategory && requestType) {
+    if (saveConfigForm.value.transactionName) {
+      const selectedType = availableTransactionTypes.value.find(t => t.value === saveConfigForm.value.transactionName)
+      const displayName = selectedType ? selectedType.label : saveConfigForm.value.transactionName
       const configTypeText = configType === 'REQUEST' ? '请求' : '响应'
-      saveConfigForm.value.name = `${bankCategory}-${requestType}-${configTypeText}`
+      saveConfigForm.value.name = `${displayName}-${configTypeText}`
     }
   }
   
@@ -5472,40 +5692,69 @@ const saveConfig = async () => {
     ElMessage.warning('请输入配置名称')
     return
   }
-  if (!saveConfigForm.value.bankCategory?.trim()) {
-    ElMessage.warning('请输入银行类别')
+  if (!saveConfigForm.value.bankId) {
+    ElMessage.warning('请选择银行')
     return
   }
-  if (!saveConfigForm.value.transactionName?.trim()) {
-    ElMessage.warning('请输入交易名称')
+  if (!saveConfigForm.value.transactionName) {
+    ElMessage.warning('请选择交易类型')
     return
   }
-  if (!saveConfigForm.value.requestType?.trim()) {
-    ElMessage.warning('请选择或输入请求类型')
-    return
+  
+  // 确保有 transactionTypeId（通过查找或创建）
+  if (!saveConfigForm.value.transactionTypeId) {
+    await findOrCreateTransactionType()
+    if (!saveConfigForm.value.transactionTypeId) {
+      ElMessage.error('无法创建交易类型记录，请重试')
+      return
+    }
   }
   
   saving.value = true
   try {
     const config = exportMappingConfig()
-    const res = await configApi.saveConfig(
+    // 确保请求和响应使用同一版本
+    const version = saveConfigForm.value.version || 'v1'
+    const createNewVersion = saveConfigForm.value.createNewVersion || false
+    
+    const res = await configV2Api.saveConfig(
       currentConfigId.value || null, // 如果是编辑模式，传递配置ID
+      saveConfigForm.value.transactionTypeId,
+      version, // 传递版本
       saveConfigForm.value.name.trim(),
       saveConfigForm.value.description?.trim() || '',
-      saveConfigForm.value.bankCategory.trim(),
-      saveConfigForm.value.transactionName.trim(),
-      saveConfigForm.value.requestType.trim(),
+      createNewVersion, // 是否创建新版本
       config
     )
     
     if (res.data.success) {
-      ElMessage.success(currentConfigId.value ? '配置修改成功' : '配置保存成功')
-      saveConfigVisible.value = false
-      currentConfigId.value = res.data.data.id
-      // 更新配置实体信息
-      currentConfigEntity.value = res.data.data
-      // 更新URL，添加configId参数
-      router.replace({ query: { configId: res.data.data.id } })
+      if (createNewVersion && res.data.newVersion) {
+        ElMessage.success(`新版本创建成功: ${res.data.newVersion}`)
+        // 重新加载版本列表
+        if (saveConfigForm.value.transactionTypeId) {
+          await loadVersions(saveConfigForm.value.transactionTypeId)
+          // 更新版本为新创建的版本
+          saveConfigForm.value.version = res.data.newVersion
+          saveConfigForm.value.createNewVersion = false
+        }
+        // 刷新交易类型列表（如果从交易类型列表进入）
+        if (route.query.transactionTypeId) {
+          // 可以触发父页面刷新，或者直接更新当前配置
+          // 这里先不关闭对话框，让用户继续编辑
+        } else {
+          saveConfigVisible.value = false
+        }
+      } else {
+        ElMessage.success(currentConfigId.value ? '配置修改成功' : '配置保存成功')
+        saveConfigVisible.value = false
+        if (res.data.data) {
+          currentConfigId.value = res.data.data.id
+          // 更新配置实体信息
+          currentConfigEntity.value = res.data.data
+          // 更新URL，添加configId参数
+          router.replace({ query: { configId: res.data.data.id } })
+        }
+      }
     } else {
       ElMessage.error(res.data.errorMessage || '保存失败')
     }
@@ -5520,7 +5769,7 @@ const saveConfig = async () => {
 // 从配置加载到画布
 const loadConfigToCanvas = async (configId) => {
   try {
-    const res = await configApi.getConfigById(configId)
+    const res = await configV2Api.getConfigById(configId)
     if (!res.data.success || !res.data.data) {
       ElMessage.error('加载配置失败')
       return
@@ -5811,10 +6060,18 @@ const loadRulesToCanvas = async (rules) => {
   }
 }
 
-// 根据银行类别、交易类型和配置类型加载配置
-const loadConfigByParams = async (bankCategory, requestType, configType) => {
+// 根据交易类型ID和配置类型加载配置
+const loadConfigByParams = async (transactionTypeId, configType, version) => {
   try {
-    const res = await configApi.getConfigByBankTransactionAndType(bankCategory, requestType, configType)
+    let res
+    if (version) {
+      // 加载指定版本
+      res = await configV2Api.getConfigByVersion(transactionTypeId, configType, version)
+    } else {
+      // 加载当前版本
+      res = await configV2Api.getCurrentConfig(transactionTypeId, configType)
+    }
+    
     if (res.data.success && res.data.data) {
       // 找到了配置，加载到画布
       currentConfigId.value = res.data.data.id
@@ -5822,17 +6079,17 @@ const loadConfigByParams = async (bankCategory, requestType, configType) => {
       loadConfigToCanvas(res.data.data.id)
     } else {
       // 没有找到配置，初始化表单
-      initFormFromParams(bankCategory, requestType, configType)
+      initFormFromParams(null, transactionTypeId, configType, version)
     }
   } catch (e) {
     console.error('加载配置失败:', e)
     // 加载失败，初始化表单
-    initFormFromParams(bankCategory, requestType, configType)
+    initFormFromParams(null, transactionTypeId, configType, version)
   }
 }
 
 // 从URL参数初始化表单
-const initFormFromParams = (bankCategory, requestType, configType) => {
+const initFormFromParams = async (bankId, transactionTypeId, configType, version) => {
   currentConfigType.value = configType || 'REQUEST'
   // 清空画布
   if (graph) {
@@ -5842,23 +6099,55 @@ const initFormFromParams = (bankCategory, requestType, configType) => {
   nodeCounter = 0
   currentConfigId.value = null
   currentConfigEntity.value = null
+  
+  // 加载交易类型信息
+  if (transactionTypeId) {
+    try {
+      const typeRes = await transactionTypeApi.getById(transactionTypeId)
+      if (typeRes.data.success && typeRes.data.data) {
+        const transactionType = typeRes.data.data
+        saveConfigForm.value.bankId = transactionType.bankId
+        saveConfigForm.value.transactionTypeId = transactionTypeId
+        // 查找对应的标准交易类型值
+        const standardType = availableTransactionTypes.value.find(t => t.label === transactionType.transactionName)
+        if (standardType) {
+          saveConfigForm.value.transactionName = standardType.value
+        } else {
+          saveConfigForm.value.transactionName = transactionType.transactionName
+        }
+      }
+    } catch (e) {
+      console.error('加载交易类型信息失败:', e)
+    }
+    
+    // 加载版本列表
+    loadVersions(transactionTypeId)
+  }
 }
 
 // 切换配置类型（请求/响应）
 const switchConfigType = async (newConfigType) => {
-  const bankCategory = route.query.bankCategory
-  const requestType = route.query.requestType
+  const transactionTypeId = saveConfigForm.value.transactionTypeId || (route.query.transactionTypeId ? Number(route.query.transactionTypeId) : null)
   
-  if (!bankCategory || !requestType) {
+  if (!transactionTypeId) {
     ElMessage.warning('缺少必要的参数')
     return
   }
   
   currentConfigType.value = newConfigType
   
-  // 尝试加载对应类型的配置
+  // 获取当前版本（从表单或URL参数）
+  const currentVersion = saveConfigForm.value.version || route.query.version || 'v1'
+  
+  // 尝试加载对应类型的配置（使用当前版本）
   try {
-    const res = await configApi.getConfigByBankTransactionAndType(bankCategory, requestType, newConfigType)
+    let res
+    if (currentVersion && currentVersion !== 'v1') {
+      res = await configV2Api.getConfigByVersion(transactionTypeId, newConfigType, currentVersion)
+    } else {
+      res = await configV2Api.getCurrentConfig(transactionTypeId, newConfigType)
+    }
+    
     if (res.data.success && res.data.data) {
       // 找到了配置，加载到画布
       currentConfigId.value = res.data.data.id
@@ -5874,11 +6163,15 @@ const switchConfigType = async (newConfigType) => {
       currentConfigEntity.value = null
       
       // 更新URL参数
+      const bankId = saveConfigForm.value.bankId || route.query.bankId
+      const bankName = route.query.bankName
       router.replace({ 
         query: { 
-          bankCategory, 
-          requestType, 
-          configType: newConfigType 
+          bankId, 
+          bankName,
+          transactionTypeId, 
+          configType: newConfigType,
+          version: currentVersion
         } 
       })
     }

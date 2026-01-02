@@ -100,7 +100,7 @@ const deleteRule = async (id) => {
     })
     
     await ruleApi.deleteRule(id)
-    ElMessage.success('删除成功')
+    // ElMessage.success('删除成功')
     loadRules()
   } catch (error) {
     if (error !== 'cancel') {

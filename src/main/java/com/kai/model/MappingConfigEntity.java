@@ -45,6 +45,16 @@ public class MappingConfigEntity {
     private String requestType;
     
     /**
+     * 是否启用（1:启用，0:禁用）
+     */
+    private Boolean enabled;
+    
+    /**
+     * 配置版本（如：v1、v2等）
+     */
+    private String version;
+    
+    /**
      * 配置内容（JSON格式的MappingConfig）
      */
     private String configContent;

@@ -7,13 +7,18 @@
             <el-icon><ArrowLeft /></el-icon>
             返回
           </el-button>
-          <span>{{ bankCategory }} - 交易类型列表</span>
+          <span>{{ bankName }} - 交易类型列表</span>
           <el-button type="primary" @click="goToEditor">新建配置</el-button>
         </div>
       </template>
 
       <el-table :data="transactionList" v-loading="loading" style="width: 100%">
-        <el-table-column prop="requestType" label="交易类型" />
+        <el-table-column prop="transactionName" label="交易类型" />
+        <el-table-column label="版本" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag type="primary">{{ row.currentVersion || 'v1' }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="请求配置" width="150" align="center">
           <template #default="{ row }">
             <el-tag v-if="row.requestConfig" type="success">已配置</el-tag>
@@ -26,12 +31,12 @@
             <el-tag v-else type="info">未配置</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="300" fixed="right">
+        <el-table-column label="操作" width="400" fixed="right">
           <template #default="{ row }">
             <el-button 
               type="primary" 
               size="small" 
-              @click="editConfig(row.requestType, 'REQUEST')"
+              @click="editConfig(row.id, 'REQUEST')"
               :disabled="!row.requestConfig"
             >
               编辑请求
@@ -39,7 +44,7 @@
             <el-button 
               type="success" 
               size="small" 
-              @click="editConfig(row.requestType, 'RESPONSE')"
+              @click="editConfig(row.id, 'RESPONSE')"
               :disabled="!row.responseConfig"
             >
               编辑响应
@@ -48,13 +53,66 @@
               type="primary" 
               size="small" 
               plain
-              @click="editConfig(row.requestType, null)"
+              @click="editConfig(row.id, null)"
             >
               新增/编辑
+            </el-button>
+            <el-button 
+              type="warning" 
+              size="small" 
+              @click="showVersionDialog(row)"
+            >
+              版本管理
             </el-button>
           </template>
         </el-table-column>
       </el-table>
+      
+      <!-- 版本管理对话框 -->
+      <el-dialog 
+        v-model="versionDialogVisible" 
+        title="版本管理" 
+        width="600px"
+      >
+        <div v-if="currentTransaction">
+          <p><strong>交易类型：</strong>{{ currentTransaction.transactionName }}</p>
+          <p><strong>当前版本：</strong>{{ currentTransaction.currentVersion || 'v1' }}</p>
+          <el-table :data="versionList" style="width: 100%; margin-top: 20px;">
+            <el-table-column prop="version" label="版本" width="100" />
+            <el-table-column label="请求配置" width="120" align="center">
+              <template #default="{ row }">
+                <el-tag v-if="row.hasRequest" type="success">已配置</el-tag>
+                <el-tag v-else type="info">未配置</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="响应配置" width="120" align="center">
+              <template #default="{ row }">
+                <el-tag v-if="row.hasResponse" type="success">已配置</el-tag>
+                <el-tag v-else type="info">未配置</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="200">
+              <template #default="{ row }">
+                <el-button 
+                  type="primary" 
+                  size="small" 
+                  @click="viewVersion(row.version)"
+                >
+                  查看
+                </el-button>
+                <el-button 
+                  type="warning" 
+                  size="small" 
+                  @click="rollbackVersion(row.version)"
+                  :disabled="row.version === currentTransaction.currentVersion"
+                >
+                  回退
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </el-dialog>
     </el-card>
   </div>
 </template>
@@ -63,17 +121,23 @@
 import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ArrowLeft } from '@element-plus/icons-vue'
-import { configApi } from '../api'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { transactionTypeApi, configV2Api } from '../api'
 
 const router = useRouter()
 const route = useRoute()
-const bankCategory = ref('')
+const bankId = ref(null)
+const bankName = ref('')
 const transactionList = ref([])
 const loading = ref(false)
+const versionDialogVisible = ref(false)
+const currentTransaction = ref(null)
+const versionList = ref([])
 
 onMounted(() => {
-  bankCategory.value = route.query.bankCategory || ''
-  if (bankCategory.value) {
+  bankId.value = route.query.bankId ? Number(route.query.bankId) : null
+  bankName.value = route.query.bankName || ''
+  if (bankId.value) {
     loadTransactionList()
   }
 })
@@ -81,52 +145,47 @@ onMounted(() => {
 const loadTransactionList = async () => {
   loading.value = true
   try {
-    // 获取所有交易类型
-    const typesRes = await configApi.getTransactionTypes()
-    const transactionTypes = typesRes.data.success ? typesRes.data.data.map(t => t.value) : []
+    // 获取该银行的所有交易类型
+    const typesRes = await transactionTypeApi.getByBankId(bankId.value)
+    if (!typesRes.data.success) {
+      ElMessage.error('加载交易类型列表失败')
+      return
+    }
     
-    // 获取该银行的所有配置
-    const configsRes = await configApi.getAllConfigs()
-    const allConfigs = configsRes.data.success ? configsRes.data.data : []
+    const transactionTypes = typesRes.data.data || []
     
-    // 按银行类别过滤
-    const bankConfigs = allConfigs.filter(c => c.bankCategory === bankCategory.value)
-    
-    // 构建交易类型列表，显示每个交易类型的请求/响应配置状态
-    const transactionMap = new Map()
-    
-    // 初始化所有交易类型
-    transactionTypes.forEach(type => {
-      transactionMap.set(type, {
-        requestType: type,
-        requestConfig: null,
-        responseConfig: null
-      })
-    })
-    
-    // 填充配置信息
-    bankConfigs.forEach(config => {
-      try {
-        const configContent = JSON.parse(config.configContent || '{}')
-        const configType = configContent.configType || 'REQUEST'
-        const requestType = config.requestType
+    // 为每个交易类型获取当前版本的配置
+    const transactionListWithConfigs = await Promise.all(
+      transactionTypes.map(async (transactionType) => {
+        // 获取当前版本的请求配置
+        const requestRes = await configV2Api.getCurrentConfig(transactionType.id, 'REQUEST')
+        const requestConfig = requestRes.data.success && requestRes.data.data ? requestRes.data.data : null
         
-        if (requestType && transactionMap.has(requestType)) {
-          const item = transactionMap.get(requestType)
-          if (configType === 'REQUEST') {
-            item.requestConfig = config
-          } else if (configType === 'RESPONSE') {
-            item.responseConfig = config
-          }
+        // 获取当前版本的响应配置
+        const responseRes = await configV2Api.getCurrentConfig(transactionType.id, 'RESPONSE')
+        const responseConfig = responseRes.data.success && responseRes.data.data ? responseRes.data.data : null
+        
+        // 获取版本列表，找到当前版本
+        const versionsRes = await configV2Api.getVersions(transactionType.id)
+        const versions = versionsRes.data.success ? versionsRes.data.data : []
+        const currentVersion = versions.length > 0 ? versions[0] : 'v1' // 第一个是最新版本
+        
+        return {
+          id: transactionType.id,
+          transactionName: transactionType.transactionName,
+          description: transactionType.description,
+          enabled: transactionType.enabled,
+          requestConfig,
+          responseConfig,
+          currentVersion
         }
-      } catch (e) {
-        console.error('解析配置失败:', e)
-      }
-    })
+      })
+    )
     
-    transactionList.value = Array.from(transactionMap.values())
+    transactionList.value = transactionListWithConfigs
   } catch (e) {
     console.error('加载交易类型列表失败:', e)
+    ElMessage.error('加载交易类型列表失败')
   } finally {
     loading.value = false
   }
@@ -140,20 +199,29 @@ const goToEditor = () => {
   router.push({ 
     path: '/canvas',
     query: { 
-      bankCategory: bankCategory.value,
+      bankId: bankId.value,
+      bankName: bankName.value,
       mode: 'new'
     }
   })
 }
 
-const editConfig = (requestType, configType) => {
+// 版本比较函数
+const compareVersion = (v1, v2) => {
+  const num1 = parseInt(v1.replace('v', '')) || 0
+  const num2 = parseInt(v2.replace('v', '')) || 0
+  return num1 - num2
+}
+
+const editConfig = (transactionTypeId, configType) => {
   if (configType) {
     // 编辑指定类型的配置
     router.push({
       path: '/canvas',
       query: {
-        bankCategory: bankCategory.value,
-        requestType: requestType,
+        bankId: bankId.value,
+        bankName: bankName.value,
+        transactionTypeId: transactionTypeId,
         configType: configType
       }
     })
@@ -162,10 +230,98 @@ const editConfig = (requestType, configType) => {
     router.push({
       path: '/canvas',
       query: {
-        bankCategory: bankCategory.value,
-        requestType: requestType
+        bankId: bankId.value,
+        bankName: bankName.value,
+        transactionTypeId: transactionTypeId
       }
     })
+  }
+}
+
+// 显示版本管理对话框
+const showVersionDialog = async (transaction) => {
+  currentTransaction.value = transaction
+  versionDialogVisible.value = true
+  
+  try {
+    const res = await configV2Api.getVersions(transaction.id)
+    if (res.data.success) {
+      const versions = res.data.data || []
+      
+      // 获取每个版本的配置状态
+      const versionInfoList = await Promise.all(
+        versions.map(async (version) => {
+          const requestRes = await configV2Api.getConfigByVersion(
+            transaction.id, 
+            'REQUEST', 
+            version
+          )
+          const responseRes = await configV2Api.getConfigByVersion(
+            transaction.id, 
+            'RESPONSE', 
+            version
+          )
+          
+          return {
+            version,
+            hasRequest: requestRes.data.success && requestRes.data.data !== null,
+            hasResponse: responseRes.data.success && responseRes.data.data !== null
+          }
+        })
+      )
+      
+      versionList.value = versionInfoList
+    }
+  } catch (e) {
+    console.error('加载版本列表失败:', e)
+    ElMessage.error('加载版本列表失败')
+  }
+}
+
+// 查看指定版本
+const viewVersion = (version) => {
+  router.push({
+    path: '/canvas',
+    query: {
+      bankId: bankId.value,
+      bankName: bankName.value,
+      transactionTypeId: currentTransaction.value.id,
+      version: version
+    }
+  })
+  versionDialogVisible.value = false
+}
+
+// 回退到指定版本
+const rollbackVersion = async (version) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定要回退到版本 ${version} 吗？当前版本的配置内容将被更新为目标版本的内容。`,
+      '确认回退',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    
+    const res = await configV2Api.rollbackToVersion(
+      currentTransaction.value.id,
+      version
+    )
+    
+    if (res.data.success) {
+      ElMessage.success('版本回退成功')
+      versionDialogVisible.value = false
+      loadTransactionList() // 重新加载列表
+    } else {
+      ElMessage.error(res.data.errorMessage || '回退失败')
+    }
+  } catch (e) {
+    if (e !== 'cancel') {
+      console.error('回退版本失败:', e)
+      ElMessage.error('回退失败: ' + (e.message || '未知错误'))
+    }
   }
 }
 </script>

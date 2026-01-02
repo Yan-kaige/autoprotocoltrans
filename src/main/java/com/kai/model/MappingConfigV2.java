@@ -7,11 +7,11 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 /**
- * 标准协议实体类
+ * 映射配置实体类（新结构）
  */
-@TableName("standard_protocol")
+@TableName("mapping_config_v2")
 @Data
-public class StandardProtocol {
+public class MappingConfigV2 {
     
     /**
      * 主键ID
@@ -20,39 +20,44 @@ public class StandardProtocol {
     private Long id;
     
     /**
-     * 协议名称（唯一）
+     * 交易类型ID
+     */
+    private Long transactionTypeId;
+    
+    /**
+     * 配置类型：REQUEST（请求）或 RESPONSE（响应）
+     */
+    private String configType;
+    
+    /**
+     * 配置版本（如：v1、v2等）
+     */
+    private String version;
+    
+    /**
+     * 配置名称
      */
     private String name;
     
     /**
-     * 协议编码（唯一）
-     */
-    private String code;
-    
-    /**
-     * 协议描述
+     * 配置描述
      */
     private String description;
     
     /**
-     * 协议类型（JSON/XML）
+     * 配置内容（JSON格式的MappingConfig）
      */
-    private String protocolType;
-    
-    /**
-     * 数据格式模板（JSON或XML字符串）
-     */
-    private String dataFormat;
-    
-    /**
-     * 协议分类（如：用户信息、订单信息、支付信息等）
-     */
-    private String category;
+    private String configContent;
     
     /**
      * 是否启用（1:启用，0:禁用）
      */
     private Boolean enabled;
+    
+    /**
+     * 是否为当前版本（1:是，0:否）
+     */
+    private Boolean isCurrent;
     
     /**
      * 创建时间
@@ -64,7 +69,4 @@ public class StandardProtocol {
      */
     private LocalDateTime updateTime;
 }
-
-
-
 

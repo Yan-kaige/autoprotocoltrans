@@ -92,7 +92,7 @@ export const configApi = {
   getConfigByName: (name) => api.get(`/v2/config/name/${name}`),
   
   // 保存配置
-  saveConfig: (id, name, description, bankCategory, transactionName, requestType, mappingConfig) =>
+  saveConfig: (id, name, description, bankCategory, transactionName, requestType, version, createNewVersion, mappingConfig) =>
     api.post('/v2/config/save', {
       id: id || null, // 如果为null则表示新建
       name,
@@ -100,6 +100,8 @@ export const configApi = {
       bankCategory,
       transactionName,
       requestType,
+      version,
+      createNewVersion, // 是否创建新版本
       mappingConfig
     }),
   
@@ -122,10 +124,30 @@ export const configApi = {
     }),
   
   // 根据银行类别、交易类型和配置类型查询配置
-  getConfigByBankTransactionAndType: (bankCategory, requestType, configType) =>
+  getConfigByBankTransactionAndType: (bankCategory, requestType, configType, version) =>
     api.get('/v2/config/by-bank-transaction-type', {
-      params: { bankCategory, requestType, configType }
-    })
+      params: { bankCategory, requestType, configType, version }
+    }),
+  
+  // 获取指定银行和交易类型的所有版本列表
+  getVersions: (bankCategory, requestType) =>
+    api.get('/v2/config/versions', {
+      params: { bankCategory, requestType }
+    }),
+  
+  // 回退到指定版本
+  rollbackToVersion: (bankCategory, requestType, version) =>
+    api.post('/v2/config/rollback', {
+      bankCategory,
+      requestType,
+      version
+    }),
+  
+  // 统计指定银行的已配置请求数量
+  countRequestConfigs: (bankCategory) => api.get(`/v2/config/count-requests/${bankCategory}`),
+  
+  // 切换配置的启用状态
+  toggleEnabled: (id) => api.post(`/v2/config/toggle-enabled/${id}`)
 }
 
 // 字典管理API
@@ -185,6 +207,77 @@ export const bankApi = {
     api.get('/v2/bank/check-code', {
       params: { code, excludeId }
     })
+}
+
+// 交易类型管理API（新结构）
+export const transactionTypeApi = {
+  // 根据银行ID获取所有交易类型
+  getByBankId: (bankId) => api.get(`/v2/transaction-type/by-bank/${bankId}`),
+  
+  // 根据ID获取交易类型
+  getById: (id) => api.get(`/v2/transaction-type/${id}`),
+  
+  // 保存交易类型（新增或更新）
+  saveTransactionType: (id, bankId, transactionName, description, enabled) =>
+    api.post('/v2/transaction-type/save', {
+      id: id || null,
+      bankId,
+      transactionName,
+      description,
+      enabled
+    }),
+  
+  // 删除交易类型
+  deleteTransactionType: (id) => api.delete(`/v2/transaction-type/${id}`)
+}
+
+// 配置管理API V2（新结构）
+export const configV2Api = {
+  // 保存配置
+  saveConfig: (id, transactionTypeId, version, name, description, createNewVersion, mappingConfig) =>
+    api.post('/v2/config/save', {
+      id: id || null,
+      transactionTypeId,
+      version,
+      name,
+      description,
+      createNewVersion,
+      mappingConfig
+    }),
+  
+  // 根据ID获取配置
+  getConfigById: (id) => api.get(`/v2/config/${id}`),
+  
+  // 获取当前版本的配置
+  getCurrentConfig: (transactionTypeId, configType) =>
+    api.get('/v2/config/current', {
+      params: { transactionTypeId, configType }
+    }),
+  
+  // 获取指定版本的配置
+  getConfigByVersion: (transactionTypeId, configType, version) =>
+    api.get('/v2/config/by-version', {
+      params: { transactionTypeId, configType, version }
+    }),
+  
+  // 获取所有版本列表
+  getVersions: (transactionTypeId) =>
+    api.get('/v2/config/versions', {
+      params: { transactionTypeId }
+    }),
+  
+  // 回退到指定版本
+  rollbackToVersion: (transactionTypeId, version) =>
+    api.post('/v2/config/rollback', {
+      transactionTypeId,
+      version
+    }),
+  
+  // 删除配置
+  deleteConfig: (id) => api.delete(`/v2/config/${id}`),
+
+  // 获取标准交易类型列表
+  getTransactionTypes: () => api.get('/v2/config/transaction-types')
 }
 
 // 标准协议管理API

@@ -2,7 +2,10 @@ package com.kai.controller;
 
 import com.kai.dto.TransformResponse;
 import com.kai.model.MappingConfig;
-import com.kai.service.MappingConfigService;
+import com.kai.service.MappingConfigV2Service;
+import com.kai.model.MappingConfigV2;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.kai.service.TransformationEngine;
 import com.kai.util.MessageConverterUtil;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,7 +27,9 @@ public class TransformController {
     private TransformationEngine transformationEngine;
     
     @Autowired
-    private MappingConfigService configService;
+    private MappingConfigV2Service configService;
+    
+    private final ObjectMapper objectMapper = new ObjectMapper();
     
     /**
      * 执行转换（使用MappingConfig配置对象）
@@ -74,8 +79,20 @@ public class TransformController {
                 return ResponseEntity.badRequest().body(response);
             }
             
-            // 从数据库加载配置
-            MappingConfig config = configService.getConfigByName(configName);
+            // 从数据库加载配置（根据配置名称查找当前版本的配置）
+            LambdaQueryWrapper<MappingConfigV2> wrapper = new LambdaQueryWrapper<>();
+            wrapper.eq(MappingConfigV2::getName, configName);
+            wrapper.eq(MappingConfigV2::getIsCurrent, true);
+            wrapper.last("LIMIT 1");
+            MappingConfigV2 configEntity = configService.getOne(wrapper);
+            
+            if (configEntity == null) {
+                response.setSuccess(false);
+                response.setErrorMessage("配置不存在: " + configName);
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+            MappingConfig config = objectMapper.readValue(configEntity.getConfigContent(), MappingConfig.class);
             
             // 执行转换
             String result = transformationEngine.transform(sourceData, config);

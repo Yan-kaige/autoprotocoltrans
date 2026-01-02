@@ -187,7 +187,7 @@ const saveBank = async () => {
     )
     
     if (res.data.success) {
-      ElMessage.success(currentBankId.value ? '银行信息更新成功' : '银行信息保存成功')
+      // ElMessage.success(currentBankId.value ? '银行信息更新成功' : '银行信息保存成功')
       dialogVisible.value = false
       loadBankList()
     } else {
