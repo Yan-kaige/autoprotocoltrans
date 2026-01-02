@@ -155,6 +155,62 @@ public class MappingConfigController {
     }
     
     /**
+     * 获取所有银行类别列表
+     */
+    @GetMapping("/bank-categories")
+    public ResponseEntity<Map<String, Object>> getAllBankCategories() {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            List<String> categories = configService.getAllBankCategories();
+            result.put("success", true);
+            result.put("data", categories);
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("errorMessage", e.getMessage());
+        }
+        return ResponseEntity.ok(result);
+    }
+    
+    /**
+     * 根据银行类别和交易类型查询配置
+     */
+    @GetMapping("/by-bank-transaction")
+    public ResponseEntity<Map<String, Object>> getConfigsByBankAndTransaction(
+            @RequestParam String bankCategory,
+            @RequestParam String requestType) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            List<MappingConfigEntity> configs = configService.getConfigsByBankAndTransaction(bankCategory, requestType);
+            result.put("success", true);
+            result.put("data", configs);
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("errorMessage", e.getMessage());
+        }
+        return ResponseEntity.ok(result);
+    }
+    
+    /**
+     * 根据银行类别、交易类型和配置类型查询配置
+     */
+    @GetMapping("/by-bank-transaction-type")
+    public ResponseEntity<Map<String, Object>> getConfigByBankTransactionAndType(
+            @RequestParam String bankCategory,
+            @RequestParam String requestType,
+            @RequestParam String configType) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            MappingConfigEntity config = configService.getConfigByBankTransactionAndType(bankCategory, requestType, configType);
+            result.put("success", true);
+            result.put("data", config);
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("errorMessage", e.getMessage());
+        }
+        return ResponseEntity.ok(result);
+    }
+    
+    /**
      * 保存配置请求DTO
      */
     @lombok.Data

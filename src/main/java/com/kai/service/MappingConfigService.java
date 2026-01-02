@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * 映射配置服务类
@@ -167,6 +168,67 @@ public class MappingConfigService extends ServiceImpl<MappingConfigMapper, Mappi
         LambdaQueryWrapper<MappingConfigEntity> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(MappingConfigEntity::getName, name);
         return this.exists(wrapper);
+    }
+    
+    /**
+     * 根据银行类别和交易类型查询配置
+     */
+    public List<MappingConfigEntity> getConfigsByBankAndTransaction(String bankCategory, String requestType) {
+        LambdaQueryWrapper<MappingConfigEntity> wrapper = new LambdaQueryWrapper<>();
+        if (bankCategory != null && !bankCategory.trim().isEmpty()) {
+            wrapper.eq(MappingConfigEntity::getBankCategory, bankCategory);
+        }
+        if (requestType != null && !requestType.trim().isEmpty()) {
+            wrapper.eq(MappingConfigEntity::getRequestType, requestType);
+        }
+        wrapper.orderByDesc(MappingConfigEntity::getUpdateTime);
+        return this.list(wrapper);
+    }
+    
+    /**
+     * 根据银行类别、交易类型和配置类型查询配置
+     */
+    public MappingConfigEntity getConfigByBankTransactionAndType(String bankCategory, String requestType, String configType) {
+        try {
+            LambdaQueryWrapper<MappingConfigEntity> wrapper = new LambdaQueryWrapper<>();
+            wrapper.eq(MappingConfigEntity::getBankCategory, bankCategory);
+            wrapper.eq(MappingConfigEntity::getRequestType, requestType);
+            
+            List<MappingConfigEntity> configs = this.list(wrapper);
+            
+            // 从配置内容中查找匹配的configType
+            for (MappingConfigEntity entity : configs) {
+                try {
+                    MappingConfig config = objectMapper.readValue(entity.getConfigContent(), MappingConfig.class);
+                    if (configType != null && configType.equals(config.getConfigType())) {
+                        return entity;
+                    }
+                } catch (Exception e) {
+                    // 忽略解析错误，继续查找
+                }
+            }
+            return null;
+        } catch (Exception e) {
+            log.error("查询配置失败", e);
+            return null;
+        }
+    }
+    
+    /**
+     * 获取所有银行类别列表
+     */
+    public List<String> getAllBankCategories() {
+        QueryWrapper<MappingConfigEntity> wrapper = new QueryWrapper<>();
+        wrapper.select("DISTINCT bank_category");
+        wrapper.isNotNull("bank_category");
+        wrapper.ne("bank_category", "");
+        List<MappingConfigEntity> entities = this.list(wrapper);
+        return entities.stream()
+                .map(MappingConfigEntity::getBankCategory)
+                .filter(category -> category != null && !category.trim().isEmpty())
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
     }
 }
 

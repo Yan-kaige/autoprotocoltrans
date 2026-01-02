@@ -3,6 +3,7 @@ import RuleList from '../views/RuleList.vue'
 import RuleEdit from '../views/RuleEdit.vue'
 import CanvasEditor from '../views/CanvasEditor.vue'
 import ConfigList from '../views/ConfigList.vue'
+import TransactionList from '../views/TransactionList.vue'
 import DictionaryList from '../views/DictionaryList.vue'
 import FunctionList from '../views/FunctionList.vue'
 import StandardProtocolList from '../views/StandardProtocolList.vue'
@@ -18,6 +19,11 @@ const routes = [
     path: '/config',
     name: 'ConfigListAlias',
     component: ConfigList
+  },
+  {
+    path: '/config/transactions',
+    name: 'TransactionList',
+    component: TransactionList
   },
   {
     path: '/canvas',

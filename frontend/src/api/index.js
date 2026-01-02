@@ -110,7 +110,22 @@ export const configApi = {
   deleteConfig: (id) => api.delete(`/v2/config/${id}`),
   
   // 检查配置名称是否存在
-  checkNameExists: (name) => api.get(`/v2/config/check-name/${name}`)
+  checkNameExists: (name) => api.get(`/v2/config/check-name/${name}`),
+  
+  // 获取所有银行类别列表
+  getAllBankCategories: () => api.get('/v2/config/bank-categories'),
+  
+  // 根据银行类别和交易类型查询配置
+  getConfigsByBankAndTransaction: (bankCategory, requestType) =>
+    api.get('/v2/config/by-bank-transaction', {
+      params: { bankCategory, requestType }
+    }),
+  
+  // 根据银行类别、交易类型和配置类型查询配置
+  getConfigByBankTransactionAndType: (bankCategory, requestType, configType) =>
+    api.get('/v2/config/by-bank-transaction-type', {
+      params: { bankCategory, requestType, configType }
+    })
 }
 
 // 字典管理API

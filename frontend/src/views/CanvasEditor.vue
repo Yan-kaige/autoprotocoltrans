@@ -178,6 +178,22 @@
               <el-icon><ZoomOut /></el-icon>
               缩小
             </el-button>
+            <el-button-group v-if="route.query.bankCategory && route.query.requestType" style="margin-left: 10px;">
+              <el-button 
+                :type="currentConfigType === 'REQUEST' ? 'primary' : 'default'"
+                size="small"
+                @click="switchConfigType('REQUEST')"
+              >
+                请求配置
+              </el-button>
+              <el-button 
+                :type="currentConfigType === 'RESPONSE' ? 'primary' : 'default'"
+                size="small"
+                @click="switchConfigType('RESPONSE')"
+              >
+                响应配置
+              </el-button>
+            </el-button-group>
             <el-button type="primary" size="small"  @click="openSaveConfigDialog">{{ currentConfigId ? '修改配置' : '保存配置' }}</el-button>
 
           </div>
@@ -1137,6 +1153,7 @@ const route = useRoute()
 const router = useRouter()
 const currentConfigId = ref(null) // 当前编辑的配置ID
 const currentConfigEntity = ref(null) // 当前编辑的配置实体（包含名称和描述）
+const currentConfigType = ref('REQUEST') // 当前配置类型：REQUEST 或 RESPONSE
 
 // 使用 ResizeObserver 监听画布容器大小变化
 let resizeObserver = null
@@ -1227,11 +1244,22 @@ onMounted(() => {
     loadTransactionTypes()
     // 加载银行列表
     loadEnabledBanks()
-    // 检查URL参数，如果是编辑模式则加载配置
+    // 检查URL参数，加载配置或初始化表单
     const configId = route.query.configId
+    const bankCategory = route.query.bankCategory
+    const requestType = route.query.requestType
+    const configType = route.query.configType
+    
     if (configId) {
+      // 编辑模式：根据ID加载配置
       currentConfigId.value = configId
       loadConfigToCanvas(Number(configId))
+    } else if (bankCategory && requestType && configType) {
+      // 根据银行类别、交易类型和配置类型加载配置
+      loadConfigByParams(bankCategory, requestType, configType)
+    } else if (bankCategory && requestType) {
+      // 只提供了银行类别和交易类型，初始化表单
+      initFormFromParams(bankCategory, requestType, configType)
     }
     
     // 设置 ResizeObserver 监听画布容器大小变化
@@ -2938,7 +2966,7 @@ const loadSourceProtocol = async (protocolId) => {
       }
       // 重新解析
       parseSourceTree()
-      ElMessage.success(`已加载标准协议: ${protocol.name}`)
+      // ElMessage.success(`已加载标准协议: ${protocol.name}`)
     } else {
       ElMessage.error('加载标准协议失败: ' + response.data.errorMessage)
       selectedSourceProtocolId.value = null
@@ -2967,7 +2995,7 @@ const loadTargetProtocol = async (protocolId) => {
       }
       // 重新解析
       parseTargetTree()
-      ElMessage.success(`已加载标准协议: ${protocol.name}`)
+      // ElMessage.success(`已加载标准协议: ${protocol.name}`)
     } else {
       ElMessage.error('加载标准协议失败: ' + response.data.errorMessage)
       selectedTargetProtocolId.value = null
@@ -5416,13 +5444,23 @@ const openSaveConfigDialog = () => {
       saveConfigForm.value.configType = 'REQUEST'
     }
   } else {
-    // 新建模式，清空表单，设置默认值
+    // 新建模式，从URL参数或当前状态填充表单
+    const bankCategory = route.query.bankCategory
+    const requestType = route.query.requestType
+    const configType = route.query.configType || currentConfigType.value || 'REQUEST'
+    
+    saveConfigForm.value.bankCategory = bankCategory || ''
+    saveConfigForm.value.requestType = requestType || ''
+    saveConfigForm.value.transactionName = requestType || ''
+    saveConfigForm.value.configType = configType
     saveConfigForm.value.name = ''
     saveConfigForm.value.description = ''
-    saveConfigForm.value.bankCategory = ''
-    saveConfigForm.value.transactionName = ''
-    saveConfigForm.value.requestType = ''
-    saveConfigForm.value.configType = 'REQUEST'
+    
+    // 自动生成配置名称
+    if (bankCategory && requestType) {
+      const configTypeText = configType === 'REQUEST' ? '请求' : '响应'
+      saveConfigForm.value.name = `${bankCategory}-${requestType}-${configTypeText}`
+    }
   }
   
   saveConfigVisible.value = true
@@ -5770,6 +5808,83 @@ const loadRulesToCanvas = async (rules) => {
         updatePreview()
       }, 200)
     }
+  }
+}
+
+// 根据银行类别、交易类型和配置类型加载配置
+const loadConfigByParams = async (bankCategory, requestType, configType) => {
+  try {
+    const res = await configApi.getConfigByBankTransactionAndType(bankCategory, requestType, configType)
+    if (res.data.success && res.data.data) {
+      // 找到了配置，加载到画布
+      currentConfigId.value = res.data.data.id
+      currentConfigType.value = configType
+      loadConfigToCanvas(res.data.data.id)
+    } else {
+      // 没有找到配置，初始化表单
+      initFormFromParams(bankCategory, requestType, configType)
+    }
+  } catch (e) {
+    console.error('加载配置失败:', e)
+    // 加载失败，初始化表单
+    initFormFromParams(bankCategory, requestType, configType)
+  }
+}
+
+// 从URL参数初始化表单
+const initFormFromParams = (bankCategory, requestType, configType) => {
+  currentConfigType.value = configType || 'REQUEST'
+  // 清空画布
+  if (graph) {
+    graph.clearCells()
+    nodeCount.value = 0
+  }
+  nodeCounter = 0
+  currentConfigId.value = null
+  currentConfigEntity.value = null
+}
+
+// 切换配置类型（请求/响应）
+const switchConfigType = async (newConfigType) => {
+  const bankCategory = route.query.bankCategory
+  const requestType = route.query.requestType
+  
+  if (!bankCategory || !requestType) {
+    ElMessage.warning('缺少必要的参数')
+    return
+  }
+  
+  currentConfigType.value = newConfigType
+  
+  // 尝试加载对应类型的配置
+  try {
+    const res = await configApi.getConfigByBankTransactionAndType(bankCategory, requestType, newConfigType)
+    if (res.data.success && res.data.data) {
+      // 找到了配置，加载到画布
+      currentConfigId.value = res.data.data.id
+      loadConfigToCanvas(res.data.data.id)
+    } else {
+      // 没有找到配置，清空画布，准备新建
+      if (graph) {
+        graph.clearCells()
+        nodeCount.value = 0
+      }
+      nodeCounter = 0
+      currentConfigId.value = null
+      currentConfigEntity.value = null
+      
+      // 更新URL参数
+      router.replace({ 
+        query: { 
+          bankCategory, 
+          requestType, 
+          configType: newConfigType 
+        } 
+      })
+    }
+  } catch (e) {
+    console.error('切换配置类型失败:', e)
+    ElMessage.error('切换配置类型失败')
   }
 }
 </script>
