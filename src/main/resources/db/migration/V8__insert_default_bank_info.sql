@@ -58,3 +58,4 @@ INSERT INTO `bank_info` (`name`, `code`, `description`, `enabled`, `create_time`
 ('新安银行', 'XAB', '安徽新安银行股份有限公司', 1, NOW(), NOW()),
 ('华瑞银行', 'HRB', '上海华瑞银行股份有限公司', 1, NOW(), NOW());
 
+

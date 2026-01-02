@@ -15,3 +15,4 @@ CREATE TABLE IF NOT EXISTS `transaction_type` (
     CONSTRAINT `fk_transaction_bank` FOREIGN KEY (`bank_id`) REFERENCES `bank_info` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='交易类型表';
 
+

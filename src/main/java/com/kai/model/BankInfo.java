@@ -50,3 +50,4 @@ public class BankInfo {
     private LocalDateTime updateTime;
 }
 
+

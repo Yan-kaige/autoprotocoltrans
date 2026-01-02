@@ -14,3 +14,4 @@ CREATE TABLE IF NOT EXISTS `bank_info` (
     KEY `idx_enabled` (`enabled`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='银行信息表';
 
+

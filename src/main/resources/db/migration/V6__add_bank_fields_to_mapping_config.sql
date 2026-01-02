@@ -7,3 +7,4 @@ ADD INDEX `idx_bank_category` (`bank_category`),
 ADD INDEX `idx_transaction_name` (`transaction_name`),
 ADD INDEX `idx_request_type` (`request_type`);
 
+
