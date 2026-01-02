@@ -656,12 +656,55 @@
     <el-dialog 
       v-model="saveConfigVisible" 
       :title="currentConfigId ? '修改配置' : '保存配置'" 
-      width="500px"
+      width="600px"
       :append-to-body="true"
       :trap-focus="false"
       :destroy-on-close="false"
     >
       <el-form :model="saveConfigForm" label-width="100px">
+        <el-form-item label="配置类型" required>
+          <el-radio-group v-model="saveConfigForm.configType" @change="onConfigTypeOrBankChange">
+            <el-radio label="REQUEST">请求（标准请求→其他银行请求）</el-radio>
+            <el-radio label="RESPONSE">响应（其他银行响应→标准响应）</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="银行类别" required>
+          <el-select 
+            v-model="saveConfigForm.bankCategory" 
+            placeholder="请选择银行"
+            filterable
+            style="width: 100%"
+            @change="onConfigTypeOrBankChange"
+          >
+            <el-option
+              v-for="bank in enabledBanks"
+              :key="bank.id"
+              :label="bank.name"
+              :value="bank.name"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="交易名称" required>
+          <el-input v-model="saveConfigForm.transactionName" placeholder="请输入交易名称" />
+        </el-form-item>
+        <el-form-item label="请求类型" required>
+          <el-select 
+            v-model="saveConfigForm.requestType" 
+            placeholder="请选择或输入请求类型"
+            filterable
+            allow-create
+            default-first-option
+            style="width: 100%"
+            @change="onRequestTypeChange"
+          >
+            <el-option
+              v-for="type in transactionTypes"
+              :key="type.value"
+              :label="type.label"
+              :value="type.value"
+            />
+          </el-select>
+        </el-form-item>
         <el-form-item label="配置名称" required>
           <el-input v-model="saveConfigForm.name" placeholder="请输入配置名称" />
         </el-form-item>
@@ -722,7 +765,7 @@ import { Selection } from '@antv/x6-plugin-selection'
 import { MiniMap } from '@antv/x6-plugin-minimap'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Document, Delete, Plus, ArrowLeft, ArrowRight, ArrowDown, FullScreen, ZoomIn, ZoomOut, Search, Check, Edit, Setting, Close } from '@element-plus/icons-vue'
-import { transformV2Api, configApi, dictionaryApi, functionApi, standardProtocolApi } from '../api'
+import { transformV2Api, configApi, dictionaryApi, functionApi, standardProtocolApi, bankApi } from '../api'
 import { useRoute, useRouter } from 'vue-router'
 import loader from '@monaco-editor/loader'
 
@@ -1080,8 +1123,14 @@ const saveConfigVisible = ref(false)
 const saving = ref(false)
 const saveConfigForm = ref({
   name: '',
-  description: ''
+  description: '',
+  bankCategory: '',
+  transactionName: '',
+  requestType: '',
+  configType: 'REQUEST' // 配置类型：REQUEST（请求）或 RESPONSE（响应）
 })
+const transactionTypes = ref([]) // 标准交易类型列表
+const enabledBanks = ref([]) // 启用的银行列表
 
 // 路由相关
 const route = useRoute()
@@ -1174,6 +1223,10 @@ onMounted(() => {
     // 加载标准协议列表
     loadSourceProtocolList()
     loadTargetProtocolList()
+    // 加载标准交易类型列表
+    loadTransactionTypes()
+    // 加载银行列表
+    loadEnabledBanks()
     // 检查URL参数，如果是编辑模式则加载配置
     const configId = route.query.configId
     if (configId) {
@@ -5248,6 +5301,7 @@ const exportMappingConfig = () => {
   })
   
   const config = {
+    configType: saveConfigForm.value.configType || 'REQUEST', // 配置类型：REQUEST 或 RESPONSE
     sourceProtocol: sourceProtocol.value,
     targetProtocol: targetProtocol.value,
     prettyPrint: true,
@@ -5265,6 +5319,80 @@ const exportMappingConfig = () => {
   return config
 }
 
+// 加载标准交易类型列表
+const loadTransactionTypes = async () => {
+  try {
+    const res = await configApi.getTransactionTypes()
+    if (res.data.success && res.data.data) {
+      transactionTypes.value = res.data.data
+    }
+  } catch (e) {
+    console.error('加载交易类型列表失败:', e)
+  }
+}
+
+// 加载启用的银行列表
+const loadEnabledBanks = async () => {
+  try {
+    const res = await bankApi.getEnabledBanks()
+    if (res.data.success && res.data.data) {
+      enabledBanks.value = res.data.data || []
+    }
+  } catch (e) {
+    console.error('加载银行列表失败:', e)
+  }
+}
+
+// 请求类型改变时，自动填充交易名称和配置名称
+const onRequestTypeChange = (value) => {
+  if (!value || !value.trim()) {
+    return
+  }
+  
+  const requestType = value.trim()
+  
+  // 自动填充交易名称（如果为空）
+  if (!saveConfigForm.value.transactionName || saveConfigForm.value.transactionName.trim() === '') {
+    saveConfigForm.value.transactionName = requestType
+  }
+  
+  // 自动生成或更新配置名称
+  updateConfigName()
+}
+
+// 配置类型或银行类别改变时，更新配置名称（如果配置名称是自动生成的格式）
+const onConfigTypeOrBankChange = () => {
+  // 如果已经有请求类型，更新配置名称
+  if (saveConfigForm.value.requestType && saveConfigForm.value.requestType.trim()) {
+    updateConfigName()
+  }
+}
+
+// 更新配置名称（自动生成格式：银行类别-请求类型-配置类型）
+const updateConfigName = () => {
+  const requestType = saveConfigForm.value.requestType?.trim() || ''
+  if (!requestType) {
+    return
+  }
+  
+  const bankCategory = saveConfigForm.value.bankCategory || ''
+  const configType = saveConfigForm.value.configType === 'REQUEST' ? '请求' : '响应'
+  
+  // 生成配置名称：银行类别-请求类型-配置类型
+  let configName = ''
+  if (bankCategory) {
+    configName = `${bankCategory}-${requestType}-${configType}`
+  } else {
+    configName = `${requestType}-${configType}`
+  }
+  
+  // 如果配置名称为空，或者是之前自动生成的格式（包含请求类型），则更新
+  const currentName = saveConfigForm.value.name?.trim() || ''
+  if (!currentName || currentName.includes(requestType)) {
+    saveConfigForm.value.name = configName
+  }
+}
+
 // 打开保存配置对话框
 const openSaveConfigDialog = () => {
   const config = exportMappingConfig()
@@ -5273,14 +5401,28 @@ const openSaveConfigDialog = () => {
     return
   }
   
-  // 如果是编辑模式，填充原有的名称和描述
+  // 如果是编辑模式，填充原有的所有字段
   if (currentConfigId.value && currentConfigEntity.value) {
     saveConfigForm.value.name = currentConfigEntity.value.name || ''
     saveConfigForm.value.description = currentConfigEntity.value.description || ''
+    saveConfigForm.value.bankCategory = currentConfigEntity.value.bankCategory || ''
+    saveConfigForm.value.transactionName = currentConfigEntity.value.transactionName || ''
+    saveConfigForm.value.requestType = currentConfigEntity.value.requestType || ''
+    // 从配置内容中读取 configType
+    try {
+      const configContent = JSON.parse(currentConfigEntity.value.configContent || '{}')
+      saveConfigForm.value.configType = configContent.configType || 'REQUEST'
+    } catch (e) {
+      saveConfigForm.value.configType = 'REQUEST'
+    }
   } else {
-    // 新建模式，清空表单
+    // 新建模式，清空表单，设置默认值
     saveConfigForm.value.name = ''
     saveConfigForm.value.description = ''
+    saveConfigForm.value.bankCategory = ''
+    saveConfigForm.value.transactionName = ''
+    saveConfigForm.value.requestType = ''
+    saveConfigForm.value.configType = 'REQUEST'
   }
   
   saveConfigVisible.value = true
@@ -5292,6 +5434,18 @@ const saveConfig = async () => {
     ElMessage.warning('请输入配置名称')
     return
   }
+  if (!saveConfigForm.value.bankCategory?.trim()) {
+    ElMessage.warning('请输入银行类别')
+    return
+  }
+  if (!saveConfigForm.value.transactionName?.trim()) {
+    ElMessage.warning('请输入交易名称')
+    return
+  }
+  if (!saveConfigForm.value.requestType?.trim()) {
+    ElMessage.warning('请选择或输入请求类型')
+    return
+  }
   
   saving.value = true
   try {
@@ -5300,6 +5454,9 @@ const saveConfig = async () => {
       currentConfigId.value || null, // 如果是编辑模式，传递配置ID
       saveConfigForm.value.name.trim(),
       saveConfigForm.value.description?.trim() || '',
+      saveConfigForm.value.bankCategory.trim(),
+      saveConfigForm.value.transactionName.trim(),
+      saveConfigForm.value.requestType.trim(),
       config
     )
     

@@ -28,10 +28,15 @@ public class MappingConfigService extends ServiceImpl<MappingConfigMapper, Mappi
      * @param id 配置ID，如果为null则创建新配置，如果不为null则更新指定ID的配置
      * @param name 配置名称
      * @param description 配置描述
+     * @param bankCategory 银行类别
+     * @param transactionName 交易名称
+     * @param requestType 请求类型
      * @param config 映射配置
      */
     @Transactional
-    public MappingConfigEntity saveConfig(Long id, String name, String description, MappingConfig config) throws Exception {
+    public MappingConfigEntity saveConfig(Long id, String name, String description, 
+                                         String bankCategory, String transactionName, String requestType,
+                                         MappingConfig config) throws Exception {
         if (name == null || name.trim().isEmpty()) {
             throw new IllegalArgumentException("配置名称不能为空");
         }
@@ -63,6 +68,9 @@ public class MappingConfigService extends ServiceImpl<MappingConfigMapper, Mappi
             // 更新配置
             entity.setName(name);
             entity.setDescription(description);
+            entity.setBankCategory(bankCategory);
+            entity.setTransactionName(transactionName);
+            entity.setRequestType(requestType);
             entity.setConfigContent(configContent);
             entity.setUpdateTime(LocalDateTime.now());
             this.updateById(entity);
@@ -80,6 +88,9 @@ public class MappingConfigService extends ServiceImpl<MappingConfigMapper, Mappi
             entity = new MappingConfigEntity();
             entity.setName(name);
             entity.setDescription(description);
+            entity.setBankCategory(bankCategory);
+            entity.setTransactionName(transactionName);
+            entity.setRequestType(requestType);
             entity.setConfigContent(configContent);
             entity.setCreateTime(LocalDateTime.now());
             entity.setUpdateTime(LocalDateTime.now());

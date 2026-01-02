@@ -30,6 +30,21 @@ public class MappingConfigEntity {
     private String description;
     
     /**
+     * 银行类别
+     */
+    private String bankCategory;
+    
+    /**
+     * 交易名称
+     */
+    private String transactionName;
+    
+    /**
+     * 请求类型（如：今日余额查询、历史余额查询等）
+     */
+    private String requestType;
+    
+    /**
      * 配置内容（JSON格式的MappingConfig）
      */
     private String configContent;

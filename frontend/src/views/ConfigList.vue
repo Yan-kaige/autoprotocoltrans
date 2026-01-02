@@ -11,6 +11,9 @@
       <el-table :data="configList" v-loading="loading" style="width: 100%">
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="name" label="配置名称" />
+        <el-table-column prop="bankCategory" label="银行类别" width="120" />
+        <el-table-column prop="transactionName" label="交易名称" width="150" />
+        <el-table-column prop="requestType" label="请求类型" width="150" />
         <el-table-column prop="description" label="描述" show-overflow-tooltip />
         <el-table-column prop="createTime" label="创建时间" width="180">
           <template #default="{ row }">

@@ -32,6 +32,10 @@
           <el-icon><Document /></el-icon>
           <span>标准协议</span>
         </el-menu-item>
+        <el-menu-item index="/bank">
+          <el-icon><Money /></el-icon>
+          <span>银行信息</span>
+        </el-menu-item>
       </el-menu>
     </el-aside>
     <el-main class="app-main">
@@ -43,7 +47,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { Setting, Collection, Operation, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
+import { Setting, Collection, Operation, ArrowLeft, ArrowRight, Money } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const menuCollapsed = ref(false) // 菜单折叠状态，默认展开
@@ -59,6 +63,8 @@ const activeMenu = computed(() => {
     return '/function'
   } else if (path.startsWith('/standard-protocol')) {
     return '/standard-protocol'
+  } else if (path.startsWith('/bank')) {
+    return '/bank'
   }
   return path
 })

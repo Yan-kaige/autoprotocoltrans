@@ -6,6 +6,7 @@ import ConfigList from '../views/ConfigList.vue'
 import DictionaryList from '../views/DictionaryList.vue'
 import FunctionList from '../views/FunctionList.vue'
 import StandardProtocolList from '../views/StandardProtocolList.vue'
+import BankList from '../views/BankList.vue'
 
 const routes = [
   {
@@ -37,6 +38,11 @@ const routes = [
     path: '/standard-protocol',
     name: 'StandardProtocolList',
     component: StandardProtocolList
+  },
+  {
+    path: '/bank',
+    name: 'BankList',
+    component: BankList
   },
   {
     path: '/rule',

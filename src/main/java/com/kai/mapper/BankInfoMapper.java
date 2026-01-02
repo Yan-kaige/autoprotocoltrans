@@ -1,21 +1,13 @@
 package com.kai.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.kai.model.DictionaryItem;
+import com.kai.model.BankInfo;
 import org.apache.ibatis.annotations.Mapper;
 
 /**
- * 字典项Mapper
+ * 银行信息Mapper
  */
 @Mapper
-public interface DictionaryItemMapper extends BaseMapper<DictionaryItem> {
+public interface BankInfoMapper extends BaseMapper<BankInfo> {
 }
-
-
-
-
-
-
-
-
 

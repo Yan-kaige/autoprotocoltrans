@@ -92,13 +92,19 @@ export const configApi = {
   getConfigByName: (name) => api.get(`/v2/config/name/${name}`),
   
   // 保存配置
-  saveConfig: (id, name, description, mappingConfig) =>
+  saveConfig: (id, name, description, bankCategory, transactionName, requestType, mappingConfig) =>
     api.post('/v2/config/save', {
       id: id || null, // 如果为null则表示新建
       name,
       description,
+      bankCategory,
+      transactionName,
+      requestType,
       mappingConfig
     }),
+  
+  // 获取标准交易类型列表
+  getTransactionTypes: () => api.get('/v2/config/transaction-types'),
   
   // 删除配置
   deleteConfig: (id) => api.delete(`/v2/config/${id}`),
@@ -131,6 +137,37 @@ export const dictionaryApi = {
   // 检查编码是否存在
   checkCodeExists: (code, excludeId) => 
     api.get('/v2/dictionary/check-code', {
+      params: { code, excludeId }
+    })
+}
+
+// 银行信息管理API
+export const bankApi = {
+  // 获取所有银行列表
+  getAllBanks: () => api.get('/v2/bank/list'),
+  
+  // 获取所有启用的银行列表
+  getEnabledBanks: () => api.get('/v2/bank/list/enabled'),
+  
+  // 根据ID获取银行
+  getBankById: (id) => api.get(`/v2/bank/${id}`),
+  
+  // 保存银行（新增或更新）
+  saveBank: (id, name, code, description, enabled) =>
+    api.post('/v2/bank/save', {
+      id: id || null,
+      name,
+      code,
+      description,
+      enabled
+    }),
+  
+  // 删除银行
+  deleteBank: (id) => api.delete(`/v2/bank/${id}`),
+  
+  // 检查编码是否存在
+  checkCodeExists: (code, excludeId) => 
+    api.get('/v2/bank/check-code', {
       params: { code, excludeId }
     })
 }
