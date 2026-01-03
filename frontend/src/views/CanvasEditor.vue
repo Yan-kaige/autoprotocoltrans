@@ -10,7 +10,24 @@
       <div class="editor-container">
         <div class="source-panel" :class="{ 'collapsed': sourcePanelCollapsed }" :style="{ width: sourcePanelCollapsed ? '50px' : sourcePanelWidth + 'px' }">
           <div class="panel-header">
-          <h3>源数据</h3>
+            <div v-if="route.query.transactionTypeId" class="config-type-tabs">
+              <el-button 
+                :type="currentConfigType === 'REQUEST' ? 'primary' : 'default'"
+                size="small"
+                @click="switchConfigType('REQUEST')"
+                class="tab-button"
+              >
+                请求配置
+              </el-button>
+              <el-button 
+                :type="currentConfigType === 'RESPONSE' ? 'primary' : 'default'"
+                size="small"
+                @click="switchConfigType('RESPONSE')"
+                class="tab-button"
+              >
+                响应配置
+              </el-button>
+            </div>
             <el-button
               text
               :icon="sourcePanelCollapsed ? ArrowRight : ArrowLeft"
@@ -155,6 +172,10 @@
             @drop="handleCanvasDrop"
         >
           <div class="canvas-toolbar">
+            <el-button text size="small" @click="goBack">
+              <el-icon><ArrowLeft /></el-icon>
+              返回
+            </el-button>
             <el-button type="primary" size="small" @click="addNodePair">
               <el-icon><Plus /></el-icon>
               添加节点
@@ -178,22 +199,6 @@
               <el-icon><ZoomOut /></el-icon>
               缩小
             </el-button>
-            <el-button-group v-if="route.query.transactionTypeId" style="margin-left: 10px;">
-              <el-button 
-                :type="currentConfigType === 'REQUEST' ? 'primary' : 'default'"
-                size="small"
-                @click="switchConfigType('REQUEST')"
-              >
-                请求配置
-              </el-button>
-              <el-button 
-                :type="currentConfigType === 'RESPONSE' ? 'primary' : 'default'"
-                size="small"
-                @click="switchConfigType('RESPONSE')"
-              >
-                响应配置
-              </el-button>
-            </el-button-group>
             <el-button type="primary" size="small"  @click="openSaveConfigDialog">{{ currentConfigId ? '修改配置' : '保存配置' }}</el-button>
 
           </div>
@@ -679,7 +684,7 @@
     >
       <el-form :model="saveConfigForm" label-width="100px">
         <el-form-item label="配置类型" required>
-          <el-radio-group v-model="saveConfigForm.configType" @change="onConfigTypeOrBankChange">
+          <el-radio-group v-model="saveConfigForm.configType" @change="onConfigTypeOrBankChange" :disabled="!!saveConfigForm.transactionTypeId">
             <el-radio label="REQUEST">请求（标准请求→其他银行请求）</el-radio>
             <el-radio label="RESPONSE">响应（其他银行响应→标准响应）</el-radio>
           </el-radio-group>
@@ -708,6 +713,7 @@
             filterable
             style="width: 100%"
             @change="onTransactionTypeChange"
+            :disabled="!!saveConfigForm.transactionTypeId"
           >
             <el-option
               v-for="type in availableTransactionTypes"
@@ -3909,7 +3915,7 @@ const doGenerateAutoMapping = (fields) => {
     updateMappedPaths()
     updatePreview()
     zoomToFit() // 自动适应视野
-    ElMessage.success(`已自动生成 ${fields.length} 个映射规则`)
+    // ElMessage.success(`已自动生成 ${fields.length} 个映射规则`)
   })
 }
 
@@ -4543,11 +4549,11 @@ const zoomToFit = () => {
   // 缩放后自动居中
   graph.centerContent()
   
-  ElMessage({
-    message: '视野已自动调整',
-    type: 'success',
-    duration: 1000
-  })
+  // ElMessage({
+  //   message: '视野已自动调整',
+  //   type: 'success',
+  //   duration: 1000
+  // })
 }
 
 // --- 右键菜单处理函数 ---
@@ -6123,6 +6129,23 @@ const initFormFromParams = async (bankId, transactionTypeId, configType, version
   }
 }
 
+// 返回上一页
+const goBack = () => {
+  // 如果从交易类型列表进入，返回到交易类型列表
+  if (route.query.transactionTypeId && route.query.bankId) {
+    router.push({
+      path: '/config/transactions',
+      query: {
+        bankId: route.query.bankId,
+        bankName: route.query.bankName
+      }
+    })
+  } else {
+    // 否则返回到配置列表
+    router.push({ path: '/config' })
+  }
+}
+
 // 切换配置类型（请求/响应）
 const switchConfigType = async (newConfigType) => {
   const transactionTypeId = saveConfigForm.value.transactionTypeId || (route.query.transactionTypeId ? Number(route.query.transactionTypeId) : null)
@@ -6339,6 +6362,7 @@ const switchConfigType = async (newConfigType) => {
   padding: 10px 15px;
   border-bottom: 1px solid #e4e7ed;
   background-color: #f5f7fa;
+  gap: 10px;
 }
 .panel-header h3 {
   margin: 0;
@@ -6346,6 +6370,17 @@ const switchConfigType = async (newConfigType) => {
   font-weight: 500;
 }
 .collapsed .panel-header h3 {
+  display: none;
+}
+.config-type-tabs {
+  display: flex;
+  gap: 5px;
+  flex: 1;
+}
+.config-type-tabs .tab-button {
+  flex: 1;
+}
+.source-panel.collapsed .config-type-tabs {
   display: none;
 }
 .collapse-btn {
