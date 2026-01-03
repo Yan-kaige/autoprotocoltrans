@@ -9,7 +9,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 交易类型服务类
@@ -74,12 +77,49 @@ public class TransactionTypeService extends ServiceImpl<TransactionTypeMapper, T
     
     /**
      * 根据银行ID获取所有交易类型
+     * 如果预置的交易类型不存在，则自动创建
      */
+    @Transactional
     public List<TransactionType> getByBankId(Long bankId) {
+        // 获取数据库中已存在的交易类型
         LambdaQueryWrapper<TransactionType> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(TransactionType::getBankId, bankId);
-        wrapper.orderByAsc(TransactionType::getTransactionName);
-        return this.list(wrapper);
+        List<TransactionType> existingTypes = this.list(wrapper);
+        
+        // 将已存在的交易类型按名称建立映射
+        Map<String, TransactionType> existingMap = existingTypes.stream()
+                .collect(Collectors.toMap(TransactionType::getTransactionName, type -> type));
+        
+        // 获取所有预置的交易类型
+        com.kai.enums.TransactionType[] presetTypes = com.kai.enums.TransactionType.values();
+        List<TransactionType> result = new ArrayList<>();
+        LocalDateTime now = LocalDateTime.now();
+        
+        // 确保所有预置类型都存在
+        for (com.kai.enums.TransactionType presetType : presetTypes) {
+            String displayName = presetType.getDisplayName();
+            TransactionType typeModel = existingMap.get(displayName);
+            
+            if (typeModel == null) {
+                // 如果不存在，自动创建
+                typeModel = new TransactionType();
+                typeModel.setBankId(bankId);
+                typeModel.setTransactionName(displayName);
+                typeModel.setDescription(null);
+                typeModel.setEnabled(true);
+                typeModel.setCreateTime(now);
+                typeModel.setUpdateTime(now);
+                this.save(typeModel);
+                log.info("自动创建预置交易类型: bankId={}, transactionName={}", bankId, displayName);
+            }
+            
+            result.add(typeModel);
+        }
+        
+        // 按交易名称排序
+        result.sort((a, b) -> a.getTransactionName().compareTo(b.getTransactionName()));
+        
+        return result;
     }
     
     /**

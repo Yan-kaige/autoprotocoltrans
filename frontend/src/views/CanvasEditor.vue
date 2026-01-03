@@ -5730,19 +5730,17 @@ const saveConfig = async () => {
     if (res.data.success) {
       if (createNewVersion && res.data.newVersion) {
         ElMessage.success(`新版本创建成功: ${res.data.newVersion}`)
-        // 重新加载版本列表
-        if (saveConfigForm.value.transactionTypeId) {
-          await loadVersions(saveConfigForm.value.transactionTypeId)
-          // 更新版本为新创建的版本
-          saveConfigForm.value.version = res.data.newVersion
-          saveConfigForm.value.createNewVersion = false
-        }
-        // 刷新交易类型列表（如果从交易类型列表进入）
-        if (route.query.transactionTypeId) {
-          // 可以触发父页面刷新，或者直接更新当前配置
-          // 这里先不关闭对话框，让用户继续编辑
-        } else {
-          saveConfigVisible.value = false
+        // 关闭保存对话框
+        saveConfigVisible.value = false
+        // 如果从交易类型列表进入，返回列表页面
+        if (route.query.transactionTypeId && route.query.bankId) {
+          router.push({
+            path: '/config/transactions',
+            query: {
+              bankId: route.query.bankId,
+              bankName: route.query.bankName
+            }
+          })
         }
       } else {
         ElMessage.success(currentConfigId.value ? '配置修改成功' : '配置保存成功')
@@ -5813,7 +5811,7 @@ const loadConfigToCanvas = async (configId) => {
       }
     }, 300)
     
-    ElMessage.success('配置加载成功')
+    // ElMessage.success('配置加载成功')
   } catch (e) {
     console.error('加载配置失败:', e)
     ElMessage.error('加载配置失败: ' + (e.message || '未知错误'))

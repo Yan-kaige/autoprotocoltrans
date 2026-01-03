@@ -232,7 +232,7 @@ public class MappingConfigV2Service extends ServiceImpl<MappingConfigV2Mapper, M
     }
     
     /**
-     * 回退到指定版本（更新当前版本的内容为目标版本的内容）
+     * 切换到指定版本（将目标版本设为当前版本，不覆盖任何配置内容）
      */
     @Transactional
     public boolean rollbackToVersion(Long transactionTypeId, String targetVersion) {
@@ -248,17 +248,42 @@ public class MappingConfigV2Service extends ServiceImpl<MappingConfigV2Mapper, M
         MappingConfigV2 currentRequestConfig = getCurrentConfig(transactionTypeId, "REQUEST");
         MappingConfigV2 currentResponseConfig = getCurrentConfig(transactionTypeId, "RESPONSE");
         
-        // 更新当前版本的配置内容为目标版本的内容
-        if (currentRequestConfig != null && targetRequestConfig != null) {
-            currentRequestConfig.setConfigContent(targetRequestConfig.getConfigContent());
-            currentRequestConfig.setUpdateTime(LocalDateTime.now());
-            this.updateById(currentRequestConfig);
+        // 取消当前版本的标记
+        if (currentRequestConfig != null) {
+            LambdaUpdateWrapper<MappingConfigV2> updateRequestWrapper = new LambdaUpdateWrapper<>();
+            updateRequestWrapper.eq(MappingConfigV2::getTransactionTypeId, transactionTypeId);
+            updateRequestWrapper.eq(MappingConfigV2::getConfigType, "REQUEST");
+            updateRequestWrapper.eq(MappingConfigV2::getVersion, currentRequestConfig.getVersion());
+            updateRequestWrapper.set(MappingConfigV2::getIsCurrent, false);
+            this.update(updateRequestWrapper);
         }
         
-        if (currentResponseConfig != null && targetResponseConfig != null) {
-            currentResponseConfig.setConfigContent(targetResponseConfig.getConfigContent());
-            currentResponseConfig.setUpdateTime(LocalDateTime.now());
-            this.updateById(currentResponseConfig);
+        if (currentResponseConfig != null) {
+            LambdaUpdateWrapper<MappingConfigV2> updateResponseWrapper = new LambdaUpdateWrapper<>();
+            updateResponseWrapper.eq(MappingConfigV2::getTransactionTypeId, transactionTypeId);
+            updateResponseWrapper.eq(MappingConfigV2::getConfigType, "RESPONSE");
+            updateResponseWrapper.eq(MappingConfigV2::getVersion, currentResponseConfig.getVersion());
+            updateResponseWrapper.set(MappingConfigV2::getIsCurrent, false);
+            this.update(updateResponseWrapper);
+        }
+        
+        // 将目标版本设为当前版本
+        if (targetRequestConfig != null) {
+            LambdaUpdateWrapper<MappingConfigV2> setTargetRequestWrapper = new LambdaUpdateWrapper<>();
+            setTargetRequestWrapper.eq(MappingConfigV2::getTransactionTypeId, transactionTypeId);
+            setTargetRequestWrapper.eq(MappingConfigV2::getConfigType, "REQUEST");
+            setTargetRequestWrapper.eq(MappingConfigV2::getVersion, targetVersion);
+            setTargetRequestWrapper.set(MappingConfigV2::getIsCurrent, true);
+            this.update(setTargetRequestWrapper);
+        }
+        
+        if (targetResponseConfig != null) {
+            LambdaUpdateWrapper<MappingConfigV2> setTargetResponseWrapper = new LambdaUpdateWrapper<>();
+            setTargetResponseWrapper.eq(MappingConfigV2::getTransactionTypeId, transactionTypeId);
+            setTargetResponseWrapper.eq(MappingConfigV2::getConfigType, "RESPONSE");
+            setTargetResponseWrapper.eq(MappingConfigV2::getVersion, targetVersion);
+            setTargetResponseWrapper.set(MappingConfigV2::getIsCurrent, true);
+            this.update(setTargetResponseWrapper);
         }
         
         return true;

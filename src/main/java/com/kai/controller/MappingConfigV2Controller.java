@@ -146,7 +146,7 @@ public class MappingConfigV2Controller {
     }
     
     /**
-     * 回退到指定版本
+     * 切换到指定版本（将目标版本设为当前版本）
      */
     @PostMapping("/rollback")
     public ResponseEntity<Map<String, Object>> rollbackToVersion(@RequestBody RollbackRequest request) {
@@ -157,7 +157,7 @@ public class MappingConfigV2Controller {
                     request.getVersion()
             );
             result.put("success", success);
-            result.put("message", success ? "版本回退成功" : "版本回退失败");
+            result.put("message", success ? "版本切换成功" : "版本切换失败");
         } catch (Exception e) {
             result.put("success", false);
             result.put("errorMessage", e.getMessage());

@@ -8,7 +8,6 @@
             返回
           </el-button>
           <span>{{ bankName }} - 交易类型列表</span>
-          <el-button type="primary" @click="goToEditor">新建配置</el-button>
         </div>
       </template>
 
@@ -91,22 +90,39 @@
                 <el-tag v-else type="info">未配置</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="200">
+            <el-table-column label="操作" width="280">
               <template #default="{ row }">
                 <el-button 
+                  v-if="row.hasRequest"
                   type="primary" 
                   size="small" 
-                  @click="viewVersion(row.version)"
+                  @click="viewVersion(row.version, 'REQUEST')"
                 >
-                  查看
+                  查看请求
+                </el-button>
+                <el-button 
+                  v-if="row.hasResponse"
+                  type="success" 
+                  size="small" 
+                  @click="viewVersion(row.version, 'RESPONSE')"
+                >
+                  查看响应
+                </el-button>
+                <el-button 
+                  v-if="!row.hasRequest && !row.hasResponse"
+                  type="info" 
+                  size="small" 
+                  disabled
+                >
+                  无配置
                 </el-button>
                 <el-button 
                   type="warning" 
                   size="small" 
-                  @click="rollbackVersion(row.version)"
+                  @click="switchVersion(row.version)"
                   :disabled="row.version === currentTransaction.currentVersion"
                 >
-                  回退
+                  切换
                 </el-button>
               </template>
             </el-table-column>
@@ -165,10 +181,13 @@ const loadTransactionList = async () => {
         const responseRes = await configV2Api.getCurrentConfig(transactionType.id, 'RESPONSE')
         const responseConfig = responseRes.data.success && responseRes.data.data ? responseRes.data.data : null
         
-        // 获取版本列表，找到当前版本
-        const versionsRes = await configV2Api.getVersions(transactionType.id)
-        const versions = versionsRes.data.success ? versionsRes.data.data : []
-        const currentVersion = versions.length > 0 ? versions[0] : 'v1' // 第一个是最新版本
+        // 从当前配置中获取版本号（优先使用请求配置的版本，如果没有则使用响应配置的版本）
+        let currentVersion = 'v1'
+        if (requestConfig && requestConfig.version) {
+          currentVersion = requestConfig.version
+        } else if (responseConfig && responseConfig.version) {
+          currentVersion = responseConfig.version
+        }
         
         return {
           id: transactionType.id,
@@ -193,17 +212,6 @@ const loadTransactionList = async () => {
 
 const goBack = () => {
   router.push({ path: '/config' })
-}
-
-const goToEditor = () => {
-  router.push({ 
-    path: '/canvas',
-    query: { 
-      bankId: bankId.value,
-      bankName: bankName.value,
-      mode: 'new'
-    }
-  })
 }
 
 // 版本比较函数
@@ -279,25 +287,26 @@ const showVersionDialog = async (transaction) => {
 }
 
 // 查看指定版本
-const viewVersion = (version) => {
+const viewVersion = (version, configType) => {
   router.push({
     path: '/canvas',
     query: {
       bankId: bankId.value,
       bankName: bankName.value,
       transactionTypeId: currentTransaction.value.id,
+      configType: configType,
       version: version
     }
   })
   versionDialogVisible.value = false
 }
 
-// 回退到指定版本
-const rollbackVersion = async (version) => {
+// 切换到指定版本
+const switchVersion = async (version) => {
   try {
     await ElMessageBox.confirm(
-      `确定要回退到版本 ${version} 吗？当前版本的配置内容将被更新为目标版本的内容。`,
-      '确认回退',
+      `确定要切换到版本 ${version} 吗？该版本将成为当前使用的版本。`,
+      '确认切换',
       {
         confirmButtonText: '确定',
         cancelButtonText: '取消',
@@ -311,16 +320,16 @@ const rollbackVersion = async (version) => {
     )
     
     if (res.data.success) {
-      ElMessage.success('版本回退成功')
+      ElMessage.success('版本切换成功')
       versionDialogVisible.value = false
       loadTransactionList() // 重新加载列表
     } else {
-      ElMessage.error(res.data.errorMessage || '回退失败')
+      ElMessage.error(res.data.errorMessage || '切换失败')
     }
   } catch (e) {
     if (e !== 'cancel') {
-      console.error('回退版本失败:', e)
-      ElMessage.error('回退失败: ' + (e.message || '未知错误'))
+      console.error('切换版本失败:', e)
+      ElMessage.error('切换失败: ' + (e.message || '未知错误'))
     }
   }
 }
