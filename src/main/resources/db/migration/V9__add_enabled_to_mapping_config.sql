@@ -4,3 +4,4 @@ ADD COLUMN `enabled` TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否启用（1:启
 ADD INDEX `idx_enabled` (`enabled`);
 
 
+

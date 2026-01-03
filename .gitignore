@@ -34,6 +34,7 @@ lerna-debug.log*
 # Frontend build
 frontend/dist/
 frontend/node_modules/
+frontend/.vite/
 src/main/resources/static/
 
 # OS

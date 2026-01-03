@@ -24,6 +24,9 @@ public class BankInfoController {
     @Autowired
     private BankInfoService bankInfoService;
     
+    @Autowired
+    private com.kai.service.BankPluginExportService bankPluginExportService;
+    
     /**
      * 获取所有银行信息列表
      */
@@ -149,6 +152,36 @@ public class BankInfoController {
     }
     
     /**
+     * 导出银行配置为 PF4J 插件包
+     */
+    @GetMapping("/{id}/export-plugin")
+    public ResponseEntity<?> exportBankPlugin(@PathVariable Long id) {
+        try {
+            byte[] pluginZip = bankPluginExportService.exportBankPlugin(id);
+            
+            // 获取银行信息用于生成文件名
+            BankInfo bank = bankInfoService.getById(id);
+            String fileName = (bank != null ? bank.getCode() : "bank-" + id) + "-plugin.zip";
+            
+            // 设置响应头
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_OCTET_STREAM);
+            headers.setContentDispositionFormData("attachment", fileName);
+            headers.setContentLength(pluginZip.length);
+            
+            return ResponseEntity.ok()
+                    .headers(headers)
+                    .body(pluginZip);
+        } catch (Exception e) {
+            log.error("导出银行插件失败", e);
+            Map<String, Object> result = new HashMap<>();
+            result.put("success", false);
+            result.put("errorMessage", e.getMessage());
+            return ResponseEntity.status(500).body(result);
+        }
+    }
+    
+    /**
      * 保存银行信息请求DTO
      */
     @Data
@@ -162,5 +195,6 @@ public class BankInfoController {
         private Boolean enabled;
     }
 }
+
 
 

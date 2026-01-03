@@ -16,3 +16,4 @@ CREATE TABLE IF NOT EXISTS `transaction_type` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='交易类型表';
 
 
+

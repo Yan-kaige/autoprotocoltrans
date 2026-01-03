@@ -21,9 +21,18 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" size="small" @click="viewTransactions(row)">查看交易类型</el-button>
+            <el-button 
+              type="success" 
+              size="small" 
+              @click="exportBankPlugin(row)"
+              :loading="exportingBankId === row.id"
+            >
+              <el-icon><Download /></el-icon>
+              导出插件
+            </el-button>
             <el-button 
               :type="row.enabled ? 'warning' : 'success'" 
               size="small" 
@@ -41,12 +50,14 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { Download } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { transactionTypeApi, bankApi } from '../api'
 
 const router = useRouter()
 const bankList = ref([])
 const loading = ref(false)
+const exportingBankId = ref(null)
 
 onMounted(() => {
   loadBankList()
@@ -129,6 +140,31 @@ const viewTransactions = (bank) => {
     path: '/config/transactions', 
     query: { bankId: bank.id, bankName: bank.name } 
   })
+}
+
+const exportBankPlugin = async (bank) => {
+  exportingBankId.value = bank.id
+  try {
+    const response = await bankApi.exportBankPlugin(bank.id)
+    
+    // 创建下载链接
+    const blob = new Blob([response.data], { type: 'application/zip' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${bank.code}-plugin.zip`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+    
+    ElMessage.success('插件导出成功')
+  } catch (e) {
+    console.error('导出插件失败:', e)
+    ElMessage.error('导出插件失败: ' + (e.response?.data?.errorMessage || e.message || '未知错误'))
+  } finally {
+    exportingBankId.value = null
+  }
 }
 </script>
 

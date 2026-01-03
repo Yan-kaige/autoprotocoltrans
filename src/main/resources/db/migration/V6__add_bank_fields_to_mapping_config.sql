@@ -8,3 +8,4 @@ ADD INDEX `idx_transaction_name` (`transaction_name`),
 ADD INDEX `idx_request_type` (`request_type`);
 
 
+

@@ -206,6 +206,12 @@ export const bankApi = {
   checkCodeExists: (code, excludeId) => 
     api.get('/v2/bank/check-code', {
       params: { code, excludeId }
+    }),
+  
+  // 导出银行配置为插件包
+  exportBankPlugin: (bankId) => 
+    api.get(`/v2/bank/${bankId}/export-plugin`, {
+      responseType: 'blob'
     })
 }
 

@@ -5,3 +5,4 @@ ADD INDEX `idx_version` (`version`),
 ADD INDEX `idx_bank_request_version` (`bank_category`, `request_type`, `version`);
 
 
+

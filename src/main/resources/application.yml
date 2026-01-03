@@ -36,7 +36,7 @@ mybatis-plus:
     # log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
   global-config:
     db-config:
-      id-type: auto
+      id-type: assign_id
       table-underline: true
 
 # LLM配置（用于文档导入功能）
